@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="description" content="Super Admin Access Portal - Authenticate to manage users, verify stores and captains, and audit payouts.">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://uzpvlmgqwpxcuvngsayb.supabase.co; connect-src 'self' https://quick-service.runasp.net; media-src 'self';">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title data-i18n="admin_login_title">Super Admin Portal Login</title>
+    <!-- Google Fonts: Cairo, Outfit and Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css?v=25.0">
+    
+    <style>
+        .login-wrapper {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: calc(100vh - 73px);
+            padding: 2rem;
+            position: relative;
+            background: radial-gradient(circle at top center, var(--brand-teal-light) 0%, var(--bg-base) 70%);
+        }
+
+        [data-theme="dark"] .login-wrapper {
+            background: radial-gradient(circle at top center, #1A3135 0%, #101718 70%);
+        }
+
+        .login-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-top: 4.5px solid var(--brand-teal);
+            border-radius: var(--radius-lg);
+            width: 100%;
+            max-width: 440px;
+            padding: 3rem 2.5rem;
+            box-shadow: 0 16px 40px rgba(0, 77, 64, 0.09), 0 4px 12px rgba(0, 0, 0, 0.03);
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            gap: 1.75rem;
+            animation: fadeIn 0.5s ease-out;
+        }
+
+        .login-header {
+            text-align: center;
+            z-index: 1;
+        }
+
+        .login-logo {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            display: inline-block;
+        }
+
+        .login-title {
+            font-size: 1.75rem;
+            font-weight: 800;
+            color: var(--brand-teal);
+            margin-bottom: 0.5rem;
+        }
+
+        .login-subtitle {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            line-height: 1.4;
+            font-weight: 500;
+        }
+
+        .login-form {
+            display: flex;
+            flex-direction: column;
+            gap: 1.25rem;
+            z-index: 1;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .form-label {
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: var(--brand-teal);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .login-input {
+            width: 100%;
+            background-color: var(--bg-container);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            padding: 0.8rem 1rem;
+            color: var(--text-primary);
+            font-size: 0.95rem;
+            font-weight: 600;
+            outline: none;
+            transition: all var(--transition-speed);
+        }
+
+        .login-input:focus {
+            border-color: var(--brand-teal);
+            background-color: #FFFFFF;
+            box-shadow: 0 0 0 3px rgba(0, 77, 64, 0.12);
+        }
+
+        .btn-submit {
+            background: linear-gradient(135deg, #FF9A2E 0%, #FF7A00 100%);
+            color: #fff;
+            border: none;
+            border-radius: var(--radius-sm);
+            padding: 0.9rem;
+            font-size: 1.05rem;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            box-shadow: 0 6px 18px rgba(255, 138, 31, 0.28);
+            transition: all var(--transition-speed);
+            margin-top: 0.5rem;
+        }
+
+        .btn-submit:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(255, 138, 31, 0.38);
+        }
+
+        .btn-submit:active:not(:disabled) {
+            transform: translateY(0);
+        }
+
+        .btn-submit:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .alert-box {
+            border-radius: var(--radius-sm);
+            padding: 0.75rem 1rem;
+            font-size: 0.85rem;
+            font-weight: 500;
+            display: none;
+            align-items: center;
+            gap: 0.5rem;
+            animation: shake 0.4s ease-in-out;
+        }
+
+        .alert-error {
+            background-color: rgba(255, 71, 87, 0.12);
+            border: 1px solid rgba(255, 71, 87, 0.25);
+            color: var(--color-danger);
+            display: none;
+        }
+
+        .alert-success {
+            background-color: rgba(46, 213, 115, 0.12);
+            border: 1px solid rgba(46, 213, 115, 0.25);
+            color: var(--color-success);
+            display: none;
+        }
+
+        /* Spinner */
+        .spinner {
+            width: 18px;
+            height: 18px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            display: none;
+        }
+
+        /* Animations */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-8px); }
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Mobile Responsive Overlap Fixes */
+        @media screen and (max-width: 576px) {
+            .portal-header {
+                padding: 0 8px !important;
+                height: 56px !important;
+            }
+
+            .header-right-text {
+                display: none !important;
+            }
+
+            .header-center img {
+                height: 32px !important;
+                max-width: 100px !important;
+            }
+
+            .header-left {
+                gap: 4px !important;
+            }
+
+            .header-left .btn {
+                padding: 0.25rem 0.45rem !important;
+                font-size: 0.72rem !important;
+            }
+
+            .login-wrapper {
+                padding: 0.75rem !important;
+                min-height: calc(100vh - 56px) !important;
+            }
+
+            .login-card {
+                padding: 1.25rem 1rem !important;
+                gap: 1.25rem !important;
+            }
+
+            .login-title {
+                font-size: 1.35rem !important;
+            }
+        }
+    </style>
+</head>
+<body class="portal-body">
+    <!-- Login Header -->
+    <header class="portal-header" style="display: flex !important; flex-direction: row !important; align-items: center !important; justify-content: space-between !important; flex-wrap: nowrap !important; height: 64px !important; padding: 0 16px !important; background: linear-gradient(135deg, #004D40 0%, #00796B 100%) !important; border-bottom: 3px solid #FF9800 !important; position: sticky !important; top: 0 !important; z-index: 99999 !important; width: 100% !important; box-sizing: border-box !important;">
+        <!-- Right (اليمين in RTL): Brand Title / Portal Title -->
+        <div class="header-right" style="display: flex !important; align-items: center !important; gap: 6px !important; flex: 1 !important; justify-content: flex-start !important; min-width: 0 !important;">
+            <h1 class="logo-text header-right-text" id="login-header-title" style="font-size: 0.88rem !important; font-weight: 800 !important; color: #ffffff !important; margin: 0 !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; font-family: 'Cairo', sans-serif !important;" data-i18n="login_portal_badge">لوحة التحكم السريعة</h1>
+        </div>
+        <!-- Center (في النص): Quick Logo -->
+        <div class="header-center" style="display: flex !important; align-items: center !important; justify-content: center !important; flex: 1 !important; min-width: 0 !important;">
+            <img src="assets/images/home_logo.png" alt="Quick Service Logo" class="brand-logo-wide" style="height: 38px !important; width: auto !important; max-width: 120px !important; object-fit: contain !important; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.3)) !important;">
+        </div>
+        <!-- Left (الشمال in RTL): Control Buttons (Home, Theme, Language) -->
+        <div class="header-left" style="display: flex !important; align-items: center !important; justify-content: flex-end !important; gap: 6px !important; flex: 1 !important; min-width: 0 !important;">
+            <a href="index.html" class="btn btn-secondary btn-sm" id="btn-back-home" style="border-radius: 8px !important; font-size: 0.78rem !important; font-weight: 700 !important; padding: 0.3rem 0.55rem !important; text-decoration: none !important; color: #ffffff !important; background: rgba(255,255,255,0.2) !important; border: 1px solid rgba(255,255,255,0.4) !important; white-space: nowrap !important;" data-i18n="nav_home">🏠 الرئيسية</a>
+            <button class="btn btn-secondary btn-sm btn-theme-toggle" id="btn-theme-toggle" style="width: 34px !important; height: 34px !important; border-radius: 50% !important; font-size: 1rem !important; padding: 0 !important; display: flex !important; align-items: center !important; justify-content: center !important; color: #ffffff !important; background: rgba(255,255,255,0.2) !important; border: 1.5px solid rgba(255,255,255,0.5) !important; flex-shrink: 0 !important;" title="Toggle Theme">🌙</button>
+            <button id="btn-lang-toggle" class="btn btn-secondary btn-sm" style="border-radius: 8px !important; font-size: 0.78rem !important; font-weight: 700 !important; padding: 0.3rem 0.55rem !important; color: #ffffff !important; background: rgba(255,255,255,0.2) !important; border: 1px solid rgba(255,255,255,0.4) !important; white-space: nowrap !important;">العربية</button>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="login-wrapper">
+        <div class="login-card">
+            <header class="login-header">
+                <img src="assets/images/logo_withoutname.png" alt="Quick App Logo" class="brand-logo-img" style="height: 56px; margin-bottom: 0.8rem;">
+                <h1 class="login-title" data-i18n="admin_login_title">Super Admin Portal</h1>
+                <p class="login-subtitle" data-i18n="admin_login_subtitle">Securely authenticate to launch operations monitor</p>
+            </header>
+
+             <form id="admin-login-form" class="login-form" novalidate>
+                <!-- Alert Box -->
+                <div id="login-alert" class="alert-box alert-error" role="alert">
+                    <span id="alert-icon">⚠️</span>
+                    <span id="alert-message"></span>
+                </div>
+
+                <div class="form-group">
+                    <label for="identifier" class="form-label" data-i18n="identifier_label">Phone Number / Email</label>
+                    <input type="text" id="identifier" name="identifier" class="login-input" required data-i18n-placeholder="identifier_placeholder" placeholder="e.g. +966501234567 or admin@quick.com" autocomplete="username">
+                </div>
+
+                <div class="form-group">
+                    <label for="password" class="form-label" data-i18n="password_label">Password</label>
+                    <div class="password-wrapper">
+                        <input type="password" id="password" name="password" class="login-input" required data-i18n-placeholder="password_placeholder" placeholder="Enter your secure password" autocomplete="current-password">
+                        <button type="button" class="password-toggle-btn" id="btn-toggle-password" aria-label="Toggle Password Visibility">👁️</button>
+                    </div>
+                </div>
+
+                <button type="submit" id="btn-login-submit" class="btn-submit">
+                    <span class="spinner" id="login-spinner"></span>
+                    <span id="login-btn-text" data-i18n="login_btn">Authenticate & Launch</span>
+                </button>
+            </form>
+
+            <!-- OTP Verification Form -->
+            <form id="otp-verify-form" class="login-form" style="display: none;" novalidate>
+                <!-- Alert Box -->
+                <div id="otp-alert" class="alert-box alert-error" role="alert">
+                    <span id="otp-alert-icon">⚠️</span>
+                    <span id="otp-alert-message"></span>
+                </div>
+
+                <div class="form-group">
+                    <label for="otp-phone" class="form-label">Phone Number</label>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <input type="tel" id="otp-phone" name="otp-phone" class="login-input" style="flex: 2;" required placeholder="e.g. +201012345678">
+                        <button type="button" id="btn-send-otp" class="btn-submit" style="flex: 1; font-size: 0.8rem; margin: 0; box-shadow: none; padding: 0.65rem;">Send OTP</button>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="otp-code" class="form-label">Verification Code</label>
+                    <input type="text" id="otp-code" name="otp-code" class="login-input" required placeholder="Enter 6-digit code">
+                </div>
+
+                <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+                    <button type="button" id="btn-otp-back" class="btn-submit" style="background: rgba(255, 255, 255, 0.08); color: var(--text-primary); box-shadow: none; flex: 1; margin: 0; padding: 0.75rem;">Back</button>
+                    <button type="submit" id="btn-otp-submit" class="btn-submit" style="flex: 2; margin: 0; padding: 0.75rem;">Verify & Launch</button>
+                </div>
+            </form>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="gateway-footer" style="margin-top: auto;">
+        <p data-i18n="portal_footer">&copy; 2026 Quick Service Saudi Arabia. All rights reserved. Strict Sandbox Session.</p>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="js/pretty-logger.js?v=15.0"></script>
+    <script type="module" src="js/login.js?v=15.0"></script>
+</body>
+</html>

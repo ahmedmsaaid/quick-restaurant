@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="description" content="Quick Service Restaurant Kitchen Hub: Order queue list, sound buzzer alerts, kitchen Kanban progress boards, and menu modifier options.">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.gstatic.com https://firebase.googleapis.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://uzpvlmgqwpxcuvngsayb.supabase.co https://*.googleusercontent.com https://unpkg.com https://*.tile.openstreetmap.org https://tile.openstreetmap.org; connect-src 'self' https://quick-service.runasp.net https://firebase.googleapis.com https://*.googleapis.com https://www.gstatic.com wss://*.firebaseio.com https://unpkg.com https://*.tile.openstreetmap.org https://tile.openstreetmap.org https://nominatim.openstreetmap.org; media-src 'self';">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>Restaurant Kitchen Hub - Quick Service</title>
+    <!-- Firebase JS SDK (compat) -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-messaging-compat.js"></script>
+    <!-- Dynamic Authentication Guard -->
+    <script src="js/auth-check-restaurant.js?v=25.0"></script>
+    <script src="js/pretty-logger.js?v=25.0"></script>
+    <!-- Google Fonts: Cairo, Outfit and Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css?v=25.0">
+    <!-- Leaflet CSS & JS for Interactive Location Selection -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body class="portal-body">
+    <!-- Restaurant Header -->
+    <header class="portal-header" style="display: flex !important; flex-direction: row !important; align-items: center !important; justify-content: space-between !important; flex-wrap: nowrap !important; height: 64px !important; padding: 0 12px !important; background: linear-gradient(135deg, #004D40 0%, #00796B 100%) !important; border-bottom: 3px solid #FF9800 !important; position: sticky !important; top: 0 !important; z-index: 99999 !important; width: 100% !important; box-sizing: border-box !important;">
+        <!-- Right (اليمين in RTL): Store Avatar + Store Name -->
+        <div class="header-right" style="display: flex !important; align-items: center !important; gap: 8px !important; flex: 1 !important; justify-content: flex-start !important; min-width: 0 !important; overflow: hidden !important;">
+            <img id="header-vendor-avatar" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 24 24' fill='%23004D40'><path d='M19 6h-2c0-2.76-2.24-5-5-5S7 3.24 7 6H5c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-7-3c1.66 0 3 1.34 3 3H9c0-1.66 1.34-3 3-3zm7 17H5V8h14v12z'/></svg>" alt="Restaurant Avatar" class="header-vendor-avatar" style="width: 38px !important; height: 38px !important; border-radius: 50% !important; object-fit: cover !important; border: 2px solid #ffffff !important; flex-shrink: 0 !important;">
+            <h1 class="logo-text" id="header-vendor-name" style="font-size: 0.95rem !important; font-weight: 800 !important; color: #ffffff !important; margin: 0 !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; font-family: 'Cairo', sans-serif !important;">Restaurant Kitchen Hub</h1>
+        </div>
+        <!-- Center (في النص): Quick Logo -->
+        <div class="header-center" style="display: flex !important; align-items: center !important; justify-content: center !important; flex: 1 !important; min-width: 0 !important;">
+            <img src="assets/images/home_logo.png" alt="Quick Service Logo" class="brand-logo-wide" style="height: 42px !important; width: auto !important; max-width: 140px !important; object-fit: contain !important; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.3)) !important;">
+        </div>
+        <!-- Left (الشمال in RTL): Notification Bell + Menu Button -->
+        <div class="header-left" style="display: flex !important; align-items: center !important; justify-content: flex-end !important; gap: 8px !important; flex: 1 !important; min-width: 0 !important;">
+            <div class="notification-bell-container" style="position: relative !important; display: inline-flex !important; align-items: center !important;">
+                <button id="btn-notifications" class="btn-notification-bell" title="Notifications" style="width: 38px !important; height: 38px !important; border-radius: 50% !important; background: rgba(255,255,255,0.2) !important; color: #ffffff !important; border: 1.5px solid rgba(255,255,255,0.5) !important; display: flex !important; align-items: center !important; justify-content: center !important; font-size: 1.1rem !important; cursor: pointer !important; padding: 0 !important; margin: 0 !important;">
+                    🔔
+                    <span id="notification-badge" class="badge danger-badge animate-pulse" style="position: absolute !important; top: -4px !important; right: -4px !important; min-width: 18px !important; height: 18px !important; border-radius: 9px !important; background: #ff4757 !important; color: #ffffff !important; font-size: 0.65rem !important; font-weight: 800 !important; display: none !important; align-items: center !important; justify-content: center !important; border: 2px solid #004D40 !important;">0</span>
+                </button>
+                <div id="notifications-dropdown" class="notifications-dropdown hidden">
+                    <div class="notifications-header">
+                        <span style="font-weight: 700; font-size: 0.9rem;" data-i18n="notifications_title">Notifications</span>
+                        <button id="btn-mark-all-read" class="btn btn-link btn-xs" style="font-size: 0.75rem; text-decoration: none; padding: 0;" data-i18n="notifications_clear_all">Mark read</button>
+                    </div>
+                    <div id="notifications-list" class="notifications-list">
+                        <!-- Rendered dynamically -->
+                    </div>
+                </div>
+            </div>
+            <button id="btn-mobile-sidebar-toggle" class="btn-mobile-menu" title="Menu" style="width: 38px !important; height: 38px !important; border-radius: 8px !important; background: rgba(255,255,255,0.2) !important; color: #ffffff !important; border: 1.5px solid rgba(255,255,255,0.5) !important; display: flex !important; align-items: center !important; justify-content: center !important; font-size: 1.2rem !important; cursor: pointer !important; padding: 0 !important; margin: 0 !important;">☰</button>
+        </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <div class="workspace-container">
+        <div class="dashboard-wrapper" style="width: 100%;">
+            <!-- Sidebar -->
+            <aside class="dashboard-sidebar restaurant-theme">
+                <div class="sidebar-title" data-i18n="rest_sidebar_title">Kitchen Hub</div>
+                <nav class="sidebar-menu" aria-label="Restaurant Pages">
+                    <button id="rest-menu-queue" class="sidebar-link active" data-tab="queue">
+                        <span data-i18n="rest_menu_queue">🛎️ Live Incoming</span> <span id="rest-badge-incoming" class="sidebar-badge danger-badge animate-pulse">0</span>
+                    </button>
+                    <button id="rest-menu-progress" class="sidebar-link" data-tab="progress" data-i18n="rest_menu_progress">🍳 Kitchen Kanban</button>
+                    <button id="rest-menu-menu" class="sidebar-link" data-tab="menu" data-i18n="rest_menu_menu">🍕 Menu Customizer</button>
+                    <button id="rest-menu-schedule" class="sidebar-link" data-tab="schedule" data-i18n="rest_menu_schedule">🕒 Hours & Closure</button>
+                    <button id="rest-menu-categories" class="sidebar-link" data-tab="categories" data-i18n="rest_menu_categories">📁 Manage Categories</button>
+                    <button id="rest-menu-discounts" class="sidebar-link" data-tab="discounts" data-i18n="rest_menu_discounts">🎟️ Discounts</button>
+                    <button id="rest-menu-offers" class="sidebar-link" data-tab="offers" data-i18n="rest_menu_offers">🏷️ Offers</button>
+                    <button id="rest-menu-branches" class="sidebar-link" data-tab="branches" data-i18n="rest_menu_branches">📍 Branches</button>
+                    <button id="rest-menu-profile" class="sidebar-link" data-tab="profile" data-i18n="rest_menu_profile">👤 My Profile</button>
+                </nav>
+            </aside>
+            <!-- Main Content Area -->
+            <main class="dashboard-content">
+                <header class="content-header restaurant-theme">
+                    <h2 id="rest-section-title" data-i18n="rest_section_queue_title">Live Incoming Orders</h2>
+                    <p id="rest-section-subtitle" data-i18n="rest_section_queue_sub">Manage incoming customer food orders and cook times</p>
+                </header>
+                <div id="rest-tab-container" class="tab-content-area">
+                    <!-- Dynamic sub-tabs will render here via JS -->
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Global Floating Sound Controller (For Restaurant Sound alerts) -->
+    <div id="alarm-controller" class="alarm-banner hidden">
+        <div class="alarm-banner-content">
+            <span class="alarm-bell-icon">🔔</span>
+            <div class="alarm-text-block">
+                <strong data-i18n="rest_alarm_new">New Incoming Order!</strong>
+                <span data-i18n="rest_alarm_loop">Sound alert loop is playing...</span>
+            </div>
+            <button id="btn-dismiss-alarm" class="dismiss-alarm-btn" data-i18n="rest_alarm_dismiss">Acknowledge</button>
+        </div>
+    </div>
+
+    <!-- Modals Host Layer -->
+    <div id="modal-overlay" class="modal-overlay hidden">
+        <div id="modal-container" class="modal-card">
+            <!-- Rendered dynamically by ui-utils -->
+        </div>
+    </div>
+
+    <!-- Mobile Bottom Navigation Bar (Guaranteed accessible mobile tabs) -->
+    <nav class="mobile-bottom-nav">
+        <button class="mobile-nav-item active" data-tab="queue">
+            <span class="nav-icon">📥</span>
+            <span class="nav-text">الوارد</span>
+        </button>
+        <button class="mobile-nav-item" data-tab="kanban">
+            <span class="nav-icon">🍳</span>
+            <span class="nav-text">المطبخ</span>
+        </button>
+        <button class="mobile-nav-item" data-tab="menu">
+            <span class="nav-icon">🍽️</span>
+            <span class="nav-text">القائمة</span>
+        </button>
+        <button class="mobile-nav-item" data-tab="profile">
+            <span class="nav-icon">👤</span>
+            <span class="nav-text">حسابي</span>
+        </button>
+    </nav>
+
+    <!-- JavaScript entry point -->
+    <script type="module" src="js/restaurant.js?v=25.0"></script>
+</body>
+</html>
