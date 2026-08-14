@@ -80,6 +80,7 @@ export function printOrderReceipt(order = {}) {
         printArea.id = 'thermal-receipt-print-area';
         document.body.appendChild(printArea);
     }
+    printArea.style.display = 'none';
 
     let itemsHtml = '';
     if (items.length > 0) {
