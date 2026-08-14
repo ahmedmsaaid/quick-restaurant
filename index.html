@@ -24,6 +24,60 @@
     <!-- Leaflet CSS & JS for Interactive Location Selection -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+    /* POS Thermal Printing Styles */
+    #thermal-receipt-print-area {
+        display: none;
+    }
+    @media print {
+        @page {
+            size: auto;
+            margin: 0;
+        }
+        html, body {
+            height: auto !important;
+            min-height: 0 !important;
+            overflow: visible !important;
+            display: block !important;
+            background: #ffffff !important;
+            color: #000000 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+        }
+        body > *:not(#thermal-receipt-print-area) {
+            display: none !important;
+        }
+        .portal-header,
+        .workspace-container,
+        .modal-overlay,
+        .mobile-bottom-nav,
+        #modal-overlay,
+        .dismiss-alarm-btn,
+        .full-order-overlay {
+            display: none !important;
+        }
+        #thermal-receipt-print-area {
+            display: block !important;
+            position: static !important;
+            width: 100% !important;
+            max-width: 80mm !important;
+            margin: 0 auto !important;
+            padding: 6mm 4mm !important;
+            box-sizing: border-box !important;
+            background: #ffffff !important;
+            color: #000000 !important;
+            page-break-inside: avoid !important;
+        }
+        #thermal-receipt-print-area * {
+            background: transparent !important;
+            color: #000000 !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+        }
+    }
+    </style>
 </head>
 <body class="portal-body">
     <!-- Restaurant Header -->
