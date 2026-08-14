@@ -64,7 +64,7 @@ export function printOrderReceipt(order = {}) {
 
     const orderId = order.id || order.orderId || order.code || '1001';
     const dateStr = order.createdAt ? new Date(order.createdAt).toLocaleString('ar-EG') : new Date().toLocaleString('ar-EG');
-    const storeName = order.storeName || order.vendorName || (document.documentElement.dir === 'rtl' ? 'خدمة كويك السريعة' : 'Quick Service');
+    const storeName = order.storeName || order.vendorName || (document.documentElement.dir === 'rtl' ? 'خدمة كويك السريعة' : 'Quick Delivery');
     const customerName = order.customerName || order.userName || (document.documentElement.dir === 'rtl' ? 'عميل كويك' : 'Customer');
     const customerPhone = order.customerPhone || order.userPhone || '';
     const address = order.address || order.deliveryAddress || '';
@@ -106,7 +106,7 @@ export function printOrderReceipt(order = {}) {
 
     printArea.innerHTML = `
         <div style="font-family: 'Cairo', sans-serif, monospace; font-size: 11px; color: #000; direction: rtl; text-align: right; width: 100%; box-sizing: border-box; padding: 5px;">
-            <div style="text-align: center; font-weight: 800; font-size: 14px; margin-bottom: 4px;">⚡ Quick Service POS ⚡</div>
+            <div style="text-align: center; font-weight: 800; font-size: 14px; margin-bottom: 4px;">⚡ Quick Delivery ⚡</div>
             <div style="text-align: center; font-size: 11px; font-weight: 700; margin-bottom: 8px;">${storeName}</div>
             <div style="border-top: 1px dashed #000; margin: 4px 0;"></div>
             <div><strong>رقم الطلب:</strong> #${orderId}</div>
@@ -143,7 +143,7 @@ export function printOrderReceipt(order = {}) {
             </div>
             <div style="margin-top: 4px;"><strong>طريقة الدفع:</strong> ${paymentMethod}</div>
             <div style="border-top: 1px dashed #000; margin: 8px 0 4px 0;"></div>
-            <div style="text-align: center; font-size: 10px; font-weight: 700;">شكراً لتسوقكم معنا! - Quick POS</div>
+            <div style="text-align: center; font-size: 10px; font-weight: 700; direction: rtl;">شكراً لتسوقكم معنا! - <span style="direction: ltr; display: inline-block;">Quick Delivery</span></div>
         </div>
     `;
 
