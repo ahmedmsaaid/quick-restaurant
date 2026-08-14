@@ -12,7 +12,14 @@ import { initTheme } from './ui-utils.js';
 export class LoginController {
     constructor() {
         const urlParams = new URLSearchParams(window.location.search);
-        this.roleParam = urlParams.get('role') || 'admin';
+        let defaultRole = 'admin';
+        const path = window.location.pathname.toLowerCase();
+        if (path.includes('/restaurant') || path.includes('restaurant.html')) {
+            defaultRole = 'restaurant';
+        } else if (path.includes('/market') || path.includes('market.html')) {
+            defaultRole = 'market';
+        }
+        this.roleParam = urlParams.get('role') || defaultRole;
         this.apiClient = new ApiClient(this.roleParam);
 
         // UI Element bindings
@@ -100,11 +107,13 @@ export class LoginController {
         const titleEl = document.querySelector('.login-title');
         const subtitleEl = document.querySelector('.login-subtitle');
         const logoEl = document.querySelector('.login-logo');
+        const headerTitleEl = document.getElementById('login-header-title');
 
         if (this.roleParam === 'restaurant') {
             if (titleEl) titleEl.setAttribute('data-i18n', 'rest_login_title');
             if (subtitleEl) subtitleEl.setAttribute('data-i18n', 'rest_login_subtitle');
             if (logoEl) logoEl.textContent = '🍔';
+            if (headerTitleEl) headerTitleEl.setAttribute('data-i18n', 'portal_rest_title');
             document.title = 'Restaurant Kitchen Hub Login - Quick Service';
 
             // Set CSS styling properties for Restaurant theme (Orange/Red)
@@ -116,6 +125,7 @@ export class LoginController {
             if (titleEl) titleEl.setAttribute('data-i18n', 'mkt_login_title');
             if (subtitleEl) subtitleEl.setAttribute('data-i18n', 'mkt_login_subtitle');
             if (logoEl) logoEl.textContent = '🛒';
+            if (headerTitleEl) headerTitleEl.setAttribute('data-i18n', 'portal_market_title');
             document.title = 'Supermarket Logistics Login - Quick Service';
 
             // Set CSS styling properties for Market theme (Emerald Green)
@@ -127,6 +137,7 @@ export class LoginController {
             if (titleEl) titleEl.setAttribute('data-i18n', 'admin_login_title');
             if (subtitleEl) subtitleEl.setAttribute('data-i18n', 'admin_login_subtitle');
             if (logoEl) logoEl.textContent = '👑';
+            if (headerTitleEl) headerTitleEl.setAttribute('data-i18n', 'portal_admin_title');
             document.title = 'Super Admin Portal Login - Quick Service';
         }
     }
