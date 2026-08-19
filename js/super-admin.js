@@ -4,10 +4,10 @@
  * Leaflet GPS driver tracking, and live orders pipeline management.
  */
 
-import * as db from './mock-data.js';
-import * as ui from './ui-utils.js';
-import { t, getLanguage, setLanguage, initTranslations, subscribeLangChange } from './translations.js';
-import { ApiClient, ImageService, Logger } from './core.js';
+import * as db from './mock-data.js?v=27';
+import * as ui from './ui-utils.js?v=27';
+import { t, getLanguage, setLanguage, initTranslations, subscribeLangChange } from './translations.js?v=27';
+import { ApiClient, ImageService, Logger } from './core.js?v=27';
 
 let activeTab = 'analytics';
 let activeChartInstances = [];
@@ -21,8 +21,16 @@ apiClient.registerMockHandler('/api/v1/settings', (path, options) => {
     const method = options.method || 'GET';
     const getMockSettings = () => {
         const stored = localStorage.getItem('qs_mock_settings');
-        if (stored) return JSON.parse(stored);
-        const defaults = { id: 1, orderFee: 15.0, orderMinFee: 5.0, orderMaxFee: 50.0, deliveryFee: 12.0, deliveryMinFee: 15.0 };
+        const defaults = { id: 1, orderFee: 15.0, orderMinFee: 5.0, orderMaxFee: 50.0, deliveryFee: 12.0, deliveryMinFee: 15.0, categoryNameEn: 'Exclusive Offers', categoryNameAr: 'عروض حصرية', orderInterval: 60, allowedAreaLatitude: 30.0444, allowedAreaLongitude: 31.2357, allowedAreaRadiusKm: 10.0 };
+        if (stored) {
+            const parsed = JSON.parse(stored);
+            // Reset if stale (missing new fields)
+            if (parsed.categoryNameEn === undefined) {
+                localStorage.setItem('qs_mock_settings', JSON.stringify({ ...defaults, ...parsed }));
+                return { ...defaults, ...parsed };
+            }
+            return parsed;
+        }
         localStorage.setItem('qs_mock_settings', JSON.stringify(defaults));
         return defaults;
     };
@@ -3401,10 +3409,86 @@ async function renderSettingsTab(parent) {
     const isAr = getLanguage() === 'ar';
 
     const containerGrid = ui.createElement('div', ['settings-grid'], {
-        style: 'width: 100%; align-items: start;'
+        style: 'display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem; width: 100%; align-items: start;'
     });
 
-    // Form Panel
+    // Panel 1: App Preferences (Language, Theme & Logout)
+    const prefsPanel = ui.createElement('div', ['glass-panel'], {
+        style: 'padding: 1.8rem; display: flex; flex-direction: column; gap: 1.2rem;'
+    });
+
+    const prefsHeader = ui.createElement('div', []);
+    prefsHeader.appendChild(ui.createElementWithText('h3', isAr ? '⚙️ تفضيلات اللوحة والحساب' : '⚙️ Dashboard Preferences', [], { style: 'margin: 0 0 0.4rem 0; color: var(--text-primary); font-size: 1.2rem;' }));
+    prefsHeader.appendChild(ui.createElementWithText('p', isAr ? 'التحكم في لغة اللوحة والمظهر الفاتح/الليلي وإدارة الجلسة' : 'Manage interface language, theme mode, and session logout', [], { style: 'margin: 0; color: var(--text-secondary); font-size: 0.85rem;' }));
+    prefsPanel.appendChild(prefsHeader);
+
+    // Language Option
+    const currentLang = getLanguage();
+    const langRow = ui.createElement('div', [], {
+        style: 'display: flex; align-items: center; justify-content: space-between; padding: 1rem; background: var(--bg-card, rgba(255,255,255,0.05)); border: 1px solid var(--border-color); border-radius: 12px;'
+    });
+    const langTextGroup = ui.createElement('div', []);
+    langTextGroup.appendChild(ui.createElementWithText('div', isAr ? '🌐 لغة اللوحة (Language)' : '🌐 Interface Language', [], { style: 'font-weight: 700; color: var(--text-primary);' }));
+    langTextGroup.appendChild(ui.createElementWithText('div', currentLang === 'ar' ? 'اللغة الحالية: العربية 🇸🇦' : 'Current Language: English 🇬🇧', [], { style: 'font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px;' }));
+    langRow.appendChild(langTextGroup);
+
+    const langBtn = ui.createElementWithText('button', currentLang === 'ar' ? 'English' : 'العربية', ['btn', 'btn-secondary', 'btn-sm'], {
+        style: 'border-radius: 8px; padding: 0.5rem 1rem; font-weight: 700; cursor: pointer;'
+    });
+    langBtn.addEventListener('click', () => {
+        setLanguage(currentLang === 'ar' ? 'en' : 'ar');
+    });
+    langRow.appendChild(langBtn);
+    prefsPanel.appendChild(langRow);
+
+    // Theme Option
+    const isDark = (localStorage.getItem('qs_theme') || 'light') === 'dark';
+    const themeRow = ui.createElement('div', [], {
+        style: 'display: flex; align-items: center; justify-content: space-between; padding: 1rem; background: var(--bg-card, rgba(255,255,255,0.05)); border: 1px solid var(--border-color); border-radius: 12px;'
+    });
+    const themeTextGroup = ui.createElement('div', []);
+    themeTextGroup.appendChild(ui.createElementWithText('div', isAr ? '🌙 مظهر اللوحة (Theme)' : '🌙 Display Theme', [], { style: 'font-weight: 700; color: var(--text-primary);' }));
+    themeTextGroup.appendChild(ui.createElementWithText('div', isDark ? (isAr ? 'الوضع الحالي: الداكن (Dark Mode)' : 'Current: Dark Mode') : (isAr ? 'الوضع الحالي: الفاتح (Light Mode)' : 'Current: Light Mode'), [], { style: 'font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px;' }));
+    themeRow.appendChild(themeTextGroup);
+
+    const themeBtn = ui.createElementWithText('button', isDark ? '☀️ Light' : '🌙 Dark', ['btn', 'btn-secondary', 'btn-sm'], {
+        style: 'border-radius: 8px; padding: 0.5rem 1rem; font-weight: 700; cursor: pointer;'
+    });
+    themeBtn.addEventListener('click', () => {
+        toggleTheme();
+        parent.replaceChildren();
+        renderSettingsTab(parent);
+    });
+    themeRow.appendChild(themeBtn);
+    prefsPanel.appendChild(themeRow);
+
+    // Logout Section
+    const logoutRow = ui.createElement('div', [], {
+        style: 'display: flex; align-items: center; justify-content: space-between; padding: 1rem; background: rgba(255, 71, 87, 0.08); border: 1px solid rgba(255, 71, 87, 0.3); border-radius: 12px; margin-top: 0.5rem;'
+    });
+    const logoutTextGroup = ui.createElement('div', []);
+    logoutTextGroup.appendChild(ui.createElementWithText('div', isAr ? '🚪 تسجيل الخروج' : '🚪 Account Logout', [], { style: 'font-weight: 700; color: #ff4757;' }));
+    logoutTextGroup.appendChild(ui.createElementWithText('div', isAr ? 'إنهاء الجلسة الحالية والعودة لصفحة الدخول' : 'End current session and return to login screen', [], { style: 'font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px;' }));
+    logoutRow.appendChild(logoutTextGroup);
+
+    const logoutBtn = ui.createElementWithText('button', isAr ? 'خروج' : 'Logout', ['btn', 'btn-danger', 'btn-sm'], {
+        style: 'border-radius: 8px; padding: 0.5rem 1.2rem; font-weight: 700; cursor: pointer;'
+    });
+    logoutBtn.addEventListener('click', () => {
+        const desktopLogout = document.getElementById('btn-logout');
+        if (desktopLogout) {
+            desktopLogout.click();
+        } else {
+            localStorage.removeItem('qs_admin_token');
+            window.location.replace('login.html');
+        }
+    });
+    logoutRow.appendChild(logoutBtn);
+    prefsPanel.appendChild(logoutRow);
+
+    containerGrid.appendChild(prefsPanel);
+
+    // ── Form Panel (System Pricing & App Settings) ──────────────────────────
     const formPanel = ui.createElement('div', ['glass-panel'], {
         style: 'padding: 1.8rem; display: flex; flex-direction: column; gap: 1.2rem;'
     });
@@ -3414,80 +3498,78 @@ async function renderSettingsTab(parent) {
     header.appendChild(ui.createElementWithText('p', t('sa_settings_sub'), [], { style: 'margin: 0; color: var(--text-secondary); font-size: 0.85rem;' }));
     formPanel.appendChild(header);
 
-    let settingsData = { id: 1, orderFee: 15.0, orderMinFee: 5.0, orderMaxFee: 50.0, deliveryFee: 12.0, deliveryMinFee: 15.0 };
+    // ── Default values (always rendered immediately) ─────────────────────────
+    let settingsData = {
+        id: 1,
+        orderFee: 15.0, orderMinFee: 5.0, orderMaxFee: 50.0,
+        deliveryFee: 12.0, deliveryMinFee: 15.0,
+        categoryNameEn: 'Exclusive Offers', categoryNameAr: 'عروض حصرية',
+        orderInterval: 60,
+        allowedAreaLatitude: 30.0444, allowedAreaLongitude: 31.2357, allowedAreaRadiusKm: 10.0
+    };
 
-    const loadingEl = ui.createElementWithText('div', isAr ? 'جاري تحميل الإعدادات...' : 'Loading settings...', [], {
-        style: 'color: var(--text-muted); font-size: 0.9rem;'
-    });
-    formPanel.appendChild(loadingEl);
-    parent.appendChild(containerGrid);
-
-    try {
-        const response = await apiFetch('/api/v1/settings');
-        if (response && response.result) {
-            settingsData = { ...settingsData, ...response.result };
-        }
-    } catch (err) {
-        console.error('Failed to load settings:', err);
-    } finally {
-        loadingEl.remove();
-    }
-
+    // ── Fee Inputs ────────────────────────────────────────────────────────────
     const group1 = ui.createElement('div', ['form-group']);
     group1.appendChild(ui.createElementWithText('label', t('sa_settings_order_fee'), ['form-label']));
-    const inputOrderFee = ui.createElement('input', ['search-input'], {
-        type: 'number',
-        step: '0.01',
-        min: '0',
-        value: settingsData.orderFee ?? 15.0
-    });
+    const inputOrderFee = ui.createElement('input', ['search-input'], { type: 'number', step: '0.01', min: '0', value: settingsData.orderFee });
     group1.appendChild(inputOrderFee);
     formPanel.appendChild(group1);
 
     const group2 = ui.createElement('div', ['form-group']);
     group2.appendChild(ui.createElementWithText('label', t('sa_settings_min_fee'), ['form-label']));
-    const inputMinFee = ui.createElement('input', ['search-input'], {
-        type: 'number',
-        step: '0.01',
-        min: '0',
-        value: settingsData.orderMinFee ?? 5.0
-    });
+    const inputMinFee = ui.createElement('input', ['search-input'], { type: 'number', step: '0.01', min: '0', value: settingsData.orderMinFee });
     group2.appendChild(inputMinFee);
     formPanel.appendChild(group2);
 
     const group3 = ui.createElement('div', ['form-group']);
     group3.appendChild(ui.createElementWithText('label', t('sa_settings_max_fee'), ['form-label']));
-    const inputMaxFee = ui.createElement('input', ['search-input'], {
-        type: 'number',
-        step: '0.01',
-        min: '0',
-        value: settingsData.orderMaxFee ?? 50.0
-    });
+    const inputMaxFee = ui.createElement('input', ['search-input'], { type: 'number', step: '0.01', min: '0', value: settingsData.orderMaxFee });
     group3.appendChild(inputMaxFee);
     formPanel.appendChild(group3);
 
     const group4 = ui.createElement('div', ['form-group']);
     group4.appendChild(ui.createElementWithText('label', t('sa_settings_delivery_fee'), ['form-label']));
-    const inputDeliveryFee = ui.createElement('input', ['search-input'], {
-        type: 'number',
-        step: '0.01',
-        min: '0',
-        value: settingsData.deliveryFee ?? 12.0
-    });
+    const inputDeliveryFee = ui.createElement('input', ['search-input'], { type: 'number', step: '0.01', min: '0', value: settingsData.deliveryFee });
     group4.appendChild(inputDeliveryFee);
     formPanel.appendChild(group4);
 
     const group5 = ui.createElement('div', ['form-group']);
     group5.appendChild(ui.createElementWithText('label', t('sa_settings_delivery_min_fee'), ['form-label']));
-    const inputDeliveryMinFee = ui.createElement('input', ['search-input'], {
-        type: 'number',
-        step: '0.01',
-        min: '0',
-        value: settingsData.deliveryMinFee ?? 15.0
-    });
+    const inputDeliveryMinFee = ui.createElement('input', ['search-input'], { type: 'number', step: '0.01', min: '0', value: settingsData.deliveryMinFee });
     group5.appendChild(inputDeliveryMinFee);
     formPanel.appendChild(group5);
 
+    // ── Divider ───────────────────────────────────────────────────────────────
+    formPanel.appendChild(ui.createElement('div', [], { style: 'height: 1px; background: var(--border-color); margin: 0.4rem 0;' }));
+
+    // ── Category Name fields ──────────────────────────────────────────────────
+    formPanel.appendChild(ui.createElementWithText('p', t('sa_settings_category_hint'), [], {
+        style: 'margin: 0 0 0.6rem 0; font-size: 0.8rem; color: var(--text-secondary); background: var(--bg-container); border-radius: 8px; padding: 0.6rem 0.9rem; border-left: 3px solid var(--brand-teal);'
+    }));
+
+    const groupCatEn = ui.createElement('div', ['form-group']);
+    groupCatEn.appendChild(ui.createElementWithText('label', t('sa_settings_category_name_en'), ['form-label']));
+    const inputCatEn = ui.createElement('input', ['search-input'], { type: 'text', placeholder: 'Exclusive Offers', value: settingsData.categoryNameEn });
+    groupCatEn.appendChild(inputCatEn);
+    formPanel.appendChild(groupCatEn);
+
+    const groupCatAr = ui.createElement('div', ['form-group']);
+    groupCatAr.appendChild(ui.createElementWithText('label', t('sa_settings_category_name_ar'), ['form-label']));
+    const inputCatAr = ui.createElement('input', ['search-input'], { type: 'text', dir: 'rtl', placeholder: 'عروض حصرية', value: settingsData.categoryNameAr });
+    groupCatAr.appendChild(inputCatAr);
+    formPanel.appendChild(groupCatAr);
+
+    // ── Order Interval ────────────────────────────────────────────────────────
+    const groupInterval = ui.createElement('div', ['form-group']);
+    groupInterval.appendChild(ui.createElementWithText('label', t('sa_settings_order_interval'), ['form-label']));
+    const inputInterval = ui.createElement('input', ['search-input'], { type: 'number', step: '1', min: '10', max: '3600', value: settingsData.orderInterval });
+    groupInterval.appendChild(inputInterval);
+    groupInterval.appendChild(ui.createElementWithText('small', t('sa_settings_order_interval_hint'), [], {
+        style: 'color: var(--text-secondary); font-size: 0.75rem; margin-top: 4px; display: block;'
+    }));
+    formPanel.appendChild(groupInterval);
+
+    // ── Save Button ───────────────────────────────────────────────────────────
     const saveBtn = ui.createElement('button', ['btn', 'btn-primary'], {
         style: 'margin-top: 0.5rem; padding: 0.75rem 1.5rem; font-weight: 600; width: 100%;'
     });
@@ -3499,7 +3581,13 @@ async function renderSettingsTab(parent) {
             orderMinFee: parseFloat(inputMinFee.value) || 0,
             orderMaxFee: parseFloat(inputMaxFee.value) || 0,
             deliveryFee: parseFloat(inputDeliveryFee.value) || 0,
-            deliveryMinFee: parseFloat(inputDeliveryMinFee.value) || 0
+            deliveryMinFee: parseFloat(inputDeliveryMinFee.value) || 0,
+            categoryNameEn: inputCatEn.value.trim() || 'Exclusive Offers',
+            categoryNameAr: inputCatAr.value.trim() || 'عروض حصرية',
+            orderInterval: parseInt(inputInterval.value) || 60,
+            allowedAreaLatitude: settingsData.allowedAreaLatitude ?? 30.0444,
+            allowedAreaLongitude: settingsData.allowedAreaLongitude ?? 31.2357,
+            allowedAreaRadiusKm: settingsData.allowedAreaRadiusKm ?? 10.0
         };
 
         if (payload.orderMinFee > payload.orderMaxFee) {
@@ -3517,9 +3605,10 @@ async function renderSettingsTab(parent) {
                 body: JSON.stringify(payload)
             });
 
-            if (res && (res.success || res.result)) {
+            if (res && (res.success || res.result || res.id !== undefined || typeof res === 'object')) {
                 ui.showToast(t('sa_settings_saved'), 'success');
-                if (res.result) settingsData = res.result;
+                const resData = res.result || (res.id !== undefined ? res : null);
+                if (resData) settingsData = { ...settingsData, ...resData };
             } else {
                 ui.showToast(res?.message || (isAr ? 'فشل حفظ الإعدادات' : 'Failed to save settings'), 'error');
             }
@@ -3533,7 +3622,40 @@ async function renderSettingsTab(parent) {
     });
 
     formPanel.appendChild(saveBtn);
+
+    // ── Loading status (inline, non-blocking) ─────────────────────────────────
+    const loadingBadge = ui.createElementWithText('div',
+        isAr ? '⟳ جاري تحميل القيم المحفوظة...' : '⟳ Loading saved values...',
+        [], { style: 'font-size: 0.78rem; color: var(--text-muted); text-align: center; padding: 0.3rem 0;' }
+    );
+    formPanel.appendChild(loadingBadge);
+
+    // ── Append EVERYTHING synchronously first ──────────────────────────────────
     containerGrid.appendChild(formPanel);
+    parent.appendChild(containerGrid);
+
+    // ── Then fetch API and update input values ────────────────────────────────
+    try {
+        const response = await apiFetch('/api/v1/settings');
+        const fetchedData = response ? (response.result || response.data || (response.id !== undefined ? response : (typeof response === 'object' ? response : null))) : null;
+        if (fetchedData) {
+            settingsData = { ...settingsData, ...fetchedData };
+            const d = settingsData;
+            inputOrderFee.value       = (d.orderFee !== null && d.orderFee !== undefined) ? d.orderFee : 15.0;
+            inputMinFee.value         = (d.orderMinFee !== null && d.orderMinFee !== undefined) ? d.orderMinFee : 5.0;
+            inputMaxFee.value         = (d.orderMaxFee !== null && d.orderMaxFee !== undefined) ? d.orderMaxFee : 50.0;
+            inputDeliveryFee.value    = (d.deliveryFee !== null && d.deliveryFee !== undefined) ? d.deliveryFee : 12.0;
+            inputDeliveryMinFee.value = (d.deliveryMinFee !== null && d.deliveryMinFee !== undefined) ? d.deliveryMinFee : 15.0;
+
+            inputCatEn.value = (d.categoryNameEn && d.categoryNameEn !== 'string') ? d.categoryNameEn : 'Exclusive Offers';
+            inputCatAr.value = (d.categoryNameAr && d.categoryNameAr !== 'string') ? d.categoryNameAr : 'عروض حصرية';
+            inputInterval.value = (d.orderInterval && d.orderInterval > 0) ? d.orderInterval : 60;
+        }
+    } catch (err) {
+        console.error('Failed to load settings:', err);
+    } finally {
+        loadingBadge.remove();
+    }
 
     // Live Simulator Panel
     const simPanel = ui.createElement('div', ['glass-panel'], {
@@ -3557,17 +3679,17 @@ async function renderSettingsTab(parent) {
     `;
     simPanel.appendChild(formulaCard);
 
-    const simInputsRow = ui.createElement('div', [], { style: 'display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;' });
+    const simInputsRow = ui.createElement('div', [], { style: 'display: flex; gap: 1rem; align-items: flex-end;' });
     
-    const sampleTotalGroup = ui.createElement('div', ['form-group']);
+    const sampleTotalGroup = ui.createElement('div', ['form-group'], { style: 'flex: 1; margin: 0;' });
     sampleTotalGroup.appendChild(ui.createElementWithText('label', t('sa_settings_sample_total'), ['form-label']));
-    const inputSampleTotal = ui.createElement('input', ['search-input'], { type: 'number', step: '1', min: '0', value: '100' });
+    const inputSampleTotal = ui.createElement('input', ['search-input'], { type: 'number', step: '1', min: '0', value: '100', style: 'width: 100%;' });
     sampleTotalGroup.appendChild(inputSampleTotal);
     simInputsRow.appendChild(sampleTotalGroup);
 
-    const sampleDistGroup = ui.createElement('div', ['form-group']);
-    sampleDistGroup.appendChild(ui.createElementWithText('label', t('sa_settings_sample_dist'), ['form-label']));
-    const inputSampleDist = ui.createElement('input', ['search-input'], { type: 'number', step: '0.5', min: '0', value: '5' });
+    const sampleDistGroup = ui.createElement('div', ['form-group'], { style: 'flex: 0 0 110px; margin: 0;' });
+    sampleDistGroup.appendChild(ui.createElementWithText('label', t('sa_settings_sample_dist'), ['form-label'], { style: 'font-size: 0.78rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block;' }));
+    const inputSampleDist = ui.createElement('input', ['search-input'], { type: 'number', step: '0.5', min: '0', value: '5', style: 'width: 100%;' });
     sampleDistGroup.appendChild(inputSampleDist);
     simInputsRow.appendChild(sampleDistGroup);
 
@@ -3627,6 +3749,254 @@ async function renderSettingsTab(parent) {
     });
 
     updateSimulation();
+
+    /* ---- Service Zone Map Panel ---- */
+    const mapPanel = ui.createElement('div', ['glass-panel'], {
+        style: 'padding: 1.8rem; display: flex; flex-direction: column; gap: 1.2rem; grid-column: 1 / -1;'
+    });
+
+    const mapHeader = ui.createElement('div', [], { style: 'margin-bottom: 0.5rem;' });
+    mapHeader.appendChild(ui.createElementWithText('h3', t('sa_settings_zone_title'), [], { style: 'margin: 0 0 0.4rem 0; color: var(--text-primary); font-size: 1.2rem;' }));
+    mapHeader.appendChild(ui.createElementWithText('p', t('sa_settings_zone_sub'), [], { style: 'margin: 0; color: var(--text-secondary); font-size: 0.85rem;' }));
+    mapPanel.appendChild(mapHeader);
+
+    const zoneHint = ui.createElementWithText('p', t('sa_settings_zone_hint'), [], {
+        style: 'margin: 0 0 0.8rem 0; font-size: 0.8rem; color: var(--text-secondary); background: var(--bg-container); border-radius: 8px; padding: 0.6rem 0.9rem; border-left: 3px solid var(--brand-orange, #FF9800);'
+    });
+    mapPanel.appendChild(zoneHint);
+
+    // Coordinate inputs row
+    const zoneInputsRow = ui.createElement('div', [], {
+        style: 'display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; align-items: end;'
+    });
+
+    const latGroup = ui.createElement('div', ['form-group'], { style: 'margin: 0;' });
+    latGroup.appendChild(ui.createElementWithText('label', t('sa_settings_zone_lat'), ['form-label']));
+    const inputZoneLat = ui.createElement('input', ['search-input'], {
+        type: 'number', step: '0.0001', id: 'zone-lat-input',
+        value: settingsData.allowedAreaLatitude ?? 30.0444
+    });
+    latGroup.appendChild(inputZoneLat);
+    zoneInputsRow.appendChild(latGroup);
+
+    const lngGroup = ui.createElement('div', ['form-group'], { style: 'margin: 0;' });
+    lngGroup.appendChild(ui.createElementWithText('label', t('sa_settings_zone_lng'), ['form-label']));
+    const inputZoneLng = ui.createElement('input', ['search-input'], {
+        type: 'number', step: '0.0001', id: 'zone-lng-input',
+        value: settingsData.allowedAreaLongitude ?? 31.2357
+    });
+    lngGroup.appendChild(inputZoneLng);
+    zoneInputsRow.appendChild(lngGroup);
+
+    const radiusGroup = ui.createElement('div', ['form-group'], { style: 'margin: 0;' });
+    radiusGroup.appendChild(ui.createElementWithText('label', t('sa_settings_zone_radius'), ['form-label']));
+    const inputZoneRadius = ui.createElement('input', ['search-input'], {
+        type: 'number', step: '0.5', min: '0.5', id: 'zone-radius-input',
+        value: settingsData.allowedAreaRadiusKm ?? 10.0
+    });
+    radiusGroup.appendChild(inputZoneRadius);
+    zoneInputsRow.appendChild(radiusGroup);
+
+    mapPanel.appendChild(zoneInputsRow);
+
+    // Location Search Row
+    const mapSearchRow = ui.createElement('div', [], {
+        style: 'display: flex; gap: 0.5rem; margin-top: 0.4rem;'
+    });
+    const mapSearchInput = ui.createElement('input', ['search-input'], {
+        type: 'text',
+        placeholder: isAr ? '🔍 ابحث عن مدينة، منطقة، أو شارع (مثال: مدينة نصر، القاهرة)...' : '🔍 Search city, district or street (e.g. Cairo, Nasr City)...',
+        style: 'flex: 1;'
+    });
+    const mapSearchBtn = ui.createElement('button', ['btn', 'btn-secondary'], {
+        style: 'padding: 0.5rem 1.2rem; flex-shrink: 0; font-weight: 600;'
+    });
+    mapSearchBtn.textContent = isAr ? 'بحث' : 'Search';
+    mapSearchRow.appendChild(mapSearchInput);
+    mapSearchRow.appendChild(mapSearchBtn);
+    mapPanel.appendChild(mapSearchRow);
+
+    // Map container
+    const mapContainerId = 'sa-zone-map-' + Date.now();
+    const mapContainer = ui.createElement('div', [], {
+        id: mapContainerId,
+        style: 'height: 380px; border-radius: 14px; overflow: hidden; border: 2px solid var(--border-color); background: #e8edf0; margin-top: 0.5rem;'
+    });
+    mapPanel.appendChild(mapContainer);
+
+    // Radius slider
+    const sliderRow = ui.createElement('div', [], { style: 'display: flex; align-items: center; gap: 1rem;' });
+    sliderRow.appendChild(ui.createElementWithText('span', isAr ? 'نطاق (km):' : 'Radius (km):', [], { style: 'font-size: 0.85rem; color: var(--text-secondary); flex-shrink: 0;' }));
+    const radiusSlider = ui.createElement('input', [], {
+        type: 'range', min: '0.5', max: '100', step: '0.5',
+        value: settingsData.allowedAreaRadiusKm ?? 10.0,
+        style: 'flex: 1; accent-color: var(--brand-teal, #00796B); cursor: pointer;'
+    });
+    const radiusLabel = ui.createElementWithText('span', `${(settingsData.allowedAreaRadiusKm ?? 10).toFixed(1)} km`, [], {
+        style: 'font-weight: 700; color: var(--brand-teal); min-width: 55px; text-align: center;'
+    });
+    sliderRow.appendChild(radiusSlider);
+    sliderRow.appendChild(radiusLabel);
+    mapPanel.appendChild(sliderRow);
+
+    // Save zone button
+    const zoneSaveBtn = ui.createElement('button', ['btn', 'btn-primary'], {
+        style: 'padding: 0.75rem 1.5rem; font-weight: 600; width: 100%; max-width: 300px; margin-top: 0.5rem;'
+    });
+    zoneSaveBtn.textContent = t('sa_settings_zone_save_btn');
+    zoneSaveBtn.addEventListener('click', async () => {
+        const zonePayload = {
+            id: settingsData.id || 1,
+            orderFee: parseFloat(inputOrderFee.value) || 0,
+            orderMinFee: parseFloat(inputMinFee.value) || 0,
+            orderMaxFee: parseFloat(inputMaxFee.value) || 0,
+            deliveryFee: parseFloat(inputDeliveryFee.value) || 0,
+            deliveryMinFee: parseFloat(inputDeliveryMinFee.value) || 0,
+            categoryNameEn: inputCatEn.value.trim() || 'Exclusive Offers',
+            categoryNameAr: inputCatAr.value.trim() || 'عروض حصرية',
+            orderInterval: parseInt(inputInterval.value) || 60,
+            allowedAreaLatitude: parseFloat(inputZoneLat.value) || 30.0444,
+            allowedAreaLongitude: parseFloat(inputZoneLng.value) || 31.2357,
+            allowedAreaRadiusKm: parseFloat(inputZoneRadius.value) || 10.0
+        };
+        zoneSaveBtn.disabled = true;
+        zoneSaveBtn.textContent = isAr ? 'جاري الحفظ...' : 'Saving...';
+        try {
+            const res = await apiFetch('/api/v1/settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(zonePayload)
+            });
+            if (res && (res.success || res.result || res.id !== undefined || typeof res === 'object')) {
+                settingsData = { ...settingsData, ...zonePayload };
+                ui.showToast(t('sa_settings_zone_saved'), 'success');
+            } else {
+                ui.showToast(res?.message || (isAr ? 'فشل حفظ منطقة الخدمة' : 'Failed to save zone settings'), 'error');
+            }
+        } catch (err) {
+            ui.showToast(isAr ? 'حدث خطأ أثناء الحفظ' : 'Network error saving zone settings', 'error');
+        } finally {
+            zoneSaveBtn.disabled = false;
+            zoneSaveBtn.textContent = t('sa_settings_zone_save_btn');
+        }
+    });
+    mapPanel.appendChild(zoneSaveBtn);
+    containerGrid.appendChild(mapPanel);
+
+    // Initialize Leaflet map after DOM insertion
+    requestAnimationFrame(() => {
+        const initLat = parseFloat(inputZoneLat.value) || 30.0444;
+        const initLng = parseFloat(inputZoneLng.value) || 31.2357;
+        const initRadius = (parseFloat(inputZoneRadius.value) || 10.0) * 1000; // meters
+
+        if (typeof L === 'undefined') return;
+
+        const zoneMap = L.map(mapContainerId).setView([initLat, initLng], 11);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(zoneMap);
+
+        // Zone circle
+        let zoneCircle = L.circle([initLat, initLng], {
+            color: '#00796B',
+            fillColor: '#00796B',
+            fillOpacity: 0.15,
+            weight: 2.5,
+            radius: initRadius
+        }).addTo(zoneMap);
+
+        // Draggable center marker
+        const centerIcon = L.divIcon({
+            className: '',
+            html: '<div style="background:#00796B;width:20px;height:20px;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.4);"></div>',
+            iconSize: [20, 20],
+            iconAnchor: [10, 10]
+        });
+        let centerMarker = L.marker([initLat, initLng], { draggable: true, icon: centerIcon }).addTo(zoneMap);
+
+        function syncMapFromInputs() {
+            const lat = parseFloat(inputZoneLat.value) || 30.0444;
+            const lng = parseFloat(inputZoneLng.value) || 31.2357;
+            const radKm = parseFloat(inputZoneRadius.value) || 10.0;
+            centerMarker.setLatLng([lat, lng]);
+            zoneCircle.setLatLng([lat, lng]);
+            zoneCircle.setRadius(radKm * 1000);
+        }
+
+        function syncInputsFromLatLng(lat, lng) {
+            inputZoneLat.value = lat.toFixed(6);
+            inputZoneLng.value = lng.toFixed(6);
+            centerMarker.setLatLng([lat, lng]);
+            zoneCircle.setLatLng([lat, lng]);
+        }
+
+        async function performMapSearch() {
+            const query = mapSearchInput.value.trim();
+            if (!query) return;
+            mapSearchBtn.disabled = true;
+            mapSearchBtn.textContent = isAr ? 'جاري البحث...' : 'Searching...';
+            try {
+                const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`);
+                const data = await res.json();
+                if (data && data.length > 0) {
+                    const lat = parseFloat(data[0].lat);
+                    const lon = parseFloat(data[0].lon);
+                    syncInputsFromLatLng(lat, lon);
+                    zoneMap.setView([lat, lon], 13);
+                    ui.showToast(isAr ? `تم تحديد الموقع` : `Location set`, 'success');
+                } else {
+                    ui.showToast(isAr ? 'لم يتم العثور على الموقع، جرب اسمًا آخر' : 'Location not found', 'warning');
+                }
+            } catch (err) {
+                console.error('Search failed:', err);
+                ui.showToast(isAr ? 'حدث خطأ أثناء البحث' : 'Search failed', 'error');
+            } finally {
+                mapSearchBtn.disabled = false;
+                mapSearchBtn.textContent = isAr ? 'بحث' : 'Search';
+            }
+        }
+
+        mapSearchBtn.addEventListener('click', performMapSearch);
+        mapSearchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                performMapSearch();
+            }
+        });
+
+        // Sync radius from number input
+        inputZoneRadius.addEventListener('input', () => {
+            const radKm = parseFloat(inputZoneRadius.value) || 10.0;
+            radiusSlider.value = radKm;
+            radiusLabel.textContent = `${radKm.toFixed(1)} km`;
+            zoneCircle.setRadius(radKm * 1000);
+        });
+
+        // Sync radius from slider
+        radiusSlider.addEventListener('input', () => {
+            const radKm = parseFloat(radiusSlider.value) || 10.0;
+            inputZoneRadius.value = radKm;
+            radiusLabel.textContent = `${radKm.toFixed(1)} km`;
+            zoneCircle.setRadius(radKm * 1000);
+        });
+
+        // Sync lat/lng from text inputs
+        [inputZoneLat, inputZoneLng].forEach(inp => inp.addEventListener('input', syncMapFromInputs));
+
+        // Drag marker updates inputs
+        centerMarker.on('dragend', (e) => {
+            const pos = e.target.getLatLng();
+            syncInputsFromLatLng(pos.lat, pos.lng);
+        });
+
+        // Click on map to set new center
+        zoneMap.on('click', (e) => {
+            syncInputsFromLatLng(e.latlng.lat, e.latlng.lng);
+        });
+
+        // Fix map rendering after layout
+        setTimeout(() => zoneMap.invalidateSize(), 300);
+    });
 }
 
 // Autostart on standalone load

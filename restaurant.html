@@ -20,7 +20,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="css/style.css?v=26.0">
+    <link rel="stylesheet" href="css/style.css?v=99.0">
     <!-- Leaflet CSS & JS for Interactive Location Selection -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -91,7 +91,7 @@
         <div class="header-center" style="display: flex !important; align-items: center !important; justify-content: center !important; flex: 1 !important; min-width: 0 !important;">
             <img src="assets/images/home_logo.png" alt="Quick Service Logo" class="brand-logo-wide" style="height: 42px !important; width: auto !important; max-width: 140px !important; object-fit: contain !important; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.3)) !important;">
         </div>
-        <!-- Left (الشمال in RTL): Notification Bell + Menu Button -->
+        <!-- Left (الشمال in RTL): Notification Bell -->
         <div class="header-left" style="display: flex !important; align-items: center !important; justify-content: flex-end !important; gap: 8px !important; flex: 1 !important; min-width: 0 !important;">
             <div class="notification-bell-container" style="position: relative !important; display: inline-flex !important; align-items: center !important;">
                 <button id="btn-notifications" class="btn-notification-bell" title="Notifications" style="width: 38px !important; height: 38px !important; border-radius: 50% !important; background: rgba(255,255,255,0.2) !important; color: #ffffff !important; border: 1.5px solid rgba(255,255,255,0.5) !important; display: flex !important; align-items: center !important; justify-content: center !important; font-size: 1.1rem !important; cursor: pointer !important; padding: 0 !important; margin: 0 !important;">
@@ -108,7 +108,6 @@
                     </div>
                 </div>
             </div>
-            <button id="btn-mobile-sidebar-toggle" class="btn-mobile-menu" title="Menu" style="width: 38px !important; height: 38px !important; border-radius: 8px !important; background: rgba(255,255,255,0.2) !important; color: #ffffff !important; border: 1.5px solid rgba(255,255,255,0.5) !important; display: flex !important; align-items: center !important; justify-content: center !important; font-size: 1.2rem !important; cursor: pointer !important; padding: 0 !important; margin: 0 !important;">☰</button>
         </div>
     </header>
 
@@ -130,6 +129,7 @@
                     <button id="rest-menu-offers" class="sidebar-link" data-tab="offers" data-i18n="rest_menu_offers">🏷️ Offers</button>
                     <button id="rest-menu-branches" class="sidebar-link" data-tab="branches" data-i18n="rest_menu_branches">📍 Branches</button>
                     <button id="rest-menu-profile" class="sidebar-link" data-tab="profile" data-i18n="rest_menu_profile">👤 My Profile</button>
+                    <button id="rest-menu-settings" class="sidebar-link" data-tab="settings" data-i18n="rest_menu_settings">⚙️ Settings</button>
                 </nav>
                 <div class="sidebar-footer" style="margin-top: auto;">
                     <button id="btn-logout" class="sidebar-link" style="color: var(--color-danger); width: 100%;" data-i18n="logout_btn">
@@ -170,22 +170,46 @@
     </div>
 
     <!-- Mobile Bottom Navigation Bar (Guaranteed accessible mobile tabs) -->
-    <nav class="mobile-bottom-nav">
+    <nav class="mobile-bottom-nav" style="display: none;">
         <button class="mobile-nav-item active" data-tab="queue">
-            <span class="nav-icon">📥</span>
-            <span class="nav-text">الوارد</span>
+            <span class="nav-icon">🛎️</span>
+            <span class="nav-text" data-i18n="rest_menu_queue">الوارد</span>
         </button>
-        <button class="mobile-nav-item" data-tab="kanban">
+        <button class="mobile-nav-item" data-tab="progress">
             <span class="nav-icon">🍳</span>
-            <span class="nav-text">المطبخ</span>
+            <span class="nav-text" data-i18n="rest_menu_progress">المطبخ</span>
         </button>
         <button class="mobile-nav-item" data-tab="menu">
-            <span class="nav-icon">🍽️</span>
-            <span class="nav-text">القائمة</span>
+            <span class="nav-icon">🍕</span>
+            <span class="nav-text" data-i18n="rest_menu_menu">القائمة</span>
+        </button>
+        <button class="mobile-nav-item" data-tab="schedule">
+            <span class="nav-icon">🕒</span>
+            <span class="nav-text" data-i18n="rest_menu_schedule">الساعات</span>
+        </button>
+        <button class="mobile-nav-item" data-tab="categories">
+            <span class="nav-icon">📁</span>
+            <span class="nav-text" data-i18n="rest_menu_categories">الأقسام</span>
+        </button>
+        <button class="mobile-nav-item" data-tab="discounts">
+            <span class="nav-icon">🎟️</span>
+            <span class="nav-text" data-i18n="rest_menu_discounts">الخصومات</span>
+        </button>
+        <button class="mobile-nav-item" data-tab="offers">
+            <span class="nav-icon">🏷️</span>
+            <span class="nav-text" data-i18n="rest_menu_offers">العروض</span>
+        </button>
+        <button class="mobile-nav-item" data-tab="branches">
+            <span class="nav-icon">📍</span>
+            <span class="nav-text" data-i18n="rest_menu_branches">الفروع</span>
         </button>
         <button class="mobile-nav-item" data-tab="profile">
             <span class="nav-icon">👤</span>
-            <span class="nav-text">حسابي</span>
+            <span class="nav-text" data-i18n="rest_menu_profile">حسابي</span>
+        </button>
+        <button class="mobile-nav-item" data-tab="settings">
+            <span class="nav-icon">⚙️</span>
+            <span class="nav-text" data-i18n="rest_menu_settings">الإعدادات</span>
         </button>
     </nav>
 

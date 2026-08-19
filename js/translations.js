@@ -267,6 +267,12 @@ export const translations = {
         "rest_menu_categories": "📁 Manage Categories",
         "rest_menu_discounts": "🎟️ Discounts",
         "rest_menu_profile": "👤 My Profile",
+        "rest_menu_settings": "⚙️ Settings",
+        "mkt_menu_settings": "⚙️ Settings",
+        "rest_section_settings_title": "Store & App Settings",
+        "rest_section_settings_sub": "Configure interface language, display theme mode, and account preferences",
+        "mkt_section_settings_title": "Store & App Settings",
+        "mkt_section_settings_sub": "Configure interface language, display theme mode, and account preferences",
         "rest_menu_chats": "💬 Chats",
         "mkt_menu_chats": "💬 Chats",
         "rest_menu_branches": "📍 Branches",
@@ -882,6 +888,12 @@ export const translations = {
         "rest_menu_categories": "📁 إدارة الأقسام",
         "rest_menu_discounts": "🎟️ الخصومات",
         "rest_menu_profile": "👤 بروفايلي",
+        "rest_menu_settings": "⚙️ الإعدادات",
+        "mkt_menu_settings": "⚙️ الإعدادات",
+        "rest_section_settings_title": "إعدادات وتفضيلات اللوحة",
+        "rest_section_settings_sub": "تغيير لغة اللوحة والمظهر الفاتح/الليلي وإدارة الجلسة والحساب",
+        "mkt_section_settings_title": "إعدادات وتفضيلات اللوحة",
+        "mkt_section_settings_sub": "تغيير لغة اللوحة والمظهر الفاتح/الليلي وإدارة الجلسة والحساب",
         "rest_menu_chats": "💬 المحادثات",
         "mkt_menu_chats": "💬 المحادثات",
         "rest_menu_branches": "📍 الفروع",
@@ -1259,7 +1271,9 @@ export function getLanguage() {
 export function setLanguage(lang) {
     localStorage.setItem('qs_lang', lang);
     applyLanguageLayout(lang);
+    initTranslations();
     notifySubscribers(lang);
+    window.location.reload();
 }
 
 // Translate a given key to the active language

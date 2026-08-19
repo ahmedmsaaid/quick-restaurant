@@ -717,9 +717,6 @@ export function initMobileSidebar() {
 
             actions.innerHTML = `
                 <div style="font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700; padding: 0.25rem 0.5rem;">إعدادات التحكم</div>
-                <a href="index.html" class="sidebar-link mobile-action-link">
-                    <span>🏠 الرئيسية (Home)</span>
-                </a>
                 <button class="sidebar-link mobile-action-link btn-theme-toggle" id="mobile-drawer-theme-btn">
                     <span id="mobile-drawer-theme-text">${themeLabel}</span>
                 </button>

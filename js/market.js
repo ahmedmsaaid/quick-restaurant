@@ -22,7 +22,7 @@ function clearInvalid(inputEl) {
     }
 }
 
-let activeTab = 'inventory';
+let activeTab = 'orders';
 let myMarketId = null;
 let marketProducts = [];
 let orders = [];
@@ -184,13 +184,12 @@ async function toggleActivityStatus() {
 }
 
 async function updateUserSettings(days, hours, descriptionText) {
-    const rawDescription = '__SETTINGS__:' + JSON.stringify({ days, hours, description: descriptionText });
     const profile = JSON.parse(localStorage.getItem('qs_vendor_user') || '{}');
     await apiFetch('/api/v1/users/update-profile', {
         method: 'PUT',
-        body: JSON.stringify({ name: profile.name || 'Market', photo: profile.photo || '', description: rawDescription })
+        body: JSON.stringify({ name: profile.name || 'Market', photo: profile.photo || '', description: descriptionText })
     });
-    profile.description = rawDescription;
+    profile.description = descriptionText;
     localStorage.setItem('qs_vendor_user', JSON.stringify(profile));
 }
 
@@ -912,11 +911,100 @@ function renderActiveTab() {
             }
         } else if (activeTab === 'chats') {
             renderChatsTab(container);
+        } else if (activeTab === 'settings') {
+            renderSettingsTab(container);
         }
     } catch (e) {
         console.error(`Error rendering tab ${activeTab}:`, e);
         container.innerHTML = `<div style="text-align:center; padding: 3rem; color: var(--color-danger);">${getLanguage() === 'ar' ? 'حدث خطأ أثناء عرض التبويب' : 'Error rendering tab'}</div>`;
     }
+}
+
+/* ==========================================================================
+   Tab 10: Store & App Settings
+   ========================================================================== */
+function renderSettingsTab(parent) {
+    const isAr = getLanguage() === 'ar';
+
+    const settingsGrid = ui.createElement('div', ['settings-grid'], {
+        style: 'display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem; width: 100%; align-items: start;'
+    });
+
+    const prefsPanel = ui.createElement('div', ['glass-panel'], {
+        style: 'padding: 1.8rem; display: flex; flex-direction: column; gap: 1.2rem;'
+    });
+
+    const prefsHeader = ui.createElement('div', []);
+    prefsHeader.appendChild(ui.createElementWithText('h3', isAr ? '⚙️ تفضيلات اللوحة والحساب' : '⚙️ Dashboard & Account Settings', [], { style: 'margin: 0 0 0.4rem 0; color: var(--text-primary); font-size: 1.2rem;' }));
+    prefsHeader.appendChild(ui.createElementWithText('p', isAr ? 'التحكم في لغة اللوحة، المظهر الفاتح/الليلي، وتسجيل الخروج' : 'Manage interface language, display theme mode, and session logout', [], { style: 'margin: 0; color: var(--text-secondary); font-size: 0.85rem;' }));
+    prefsPanel.appendChild(prefsHeader);
+
+    // Language Option
+    const currentLang = getLanguage();
+    const langRow = ui.createElement('div', [], {
+        style: 'display: flex; align-items: center; justify-content: space-between; padding: 1rem; background: var(--bg-card, rgba(255,255,255,0.05)); border: 1px solid var(--border-color); border-radius: 12px;'
+    });
+    const langTextGroup = ui.createElement('div', []);
+    langTextGroup.appendChild(ui.createElementWithText('div', isAr ? '🌐 لغة اللوحة (Language)' : '🌐 Interface Language', [], { style: 'font-weight: 700; color: var(--text-primary);' }));
+    langTextGroup.appendChild(ui.createElementWithText('div', currentLang === 'ar' ? 'اللغة الحالية: العربية 🇸🇦' : 'Current Language: English 🇬🇧', [], { style: 'font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px;' }));
+    langRow.appendChild(langTextGroup);
+
+    const langBtn = ui.createElementWithText('button', currentLang === 'ar' ? 'English' : 'العربية', ['btn', 'btn-secondary', 'btn-sm'], {
+        style: 'border-radius: 8px; padding: 0.5rem 1rem; font-weight: 700; cursor: pointer;'
+    });
+    langBtn.addEventListener('click', () => {
+        setLanguage(currentLang === 'ar' ? 'en' : 'ar');
+    });
+    langRow.appendChild(langBtn);
+    prefsPanel.appendChild(langRow);
+
+    // Theme Option
+    const isDark = (localStorage.getItem('qs_theme') || 'light') === 'dark';
+    const themeRow = ui.createElement('div', [], {
+        style: 'display: flex; align-items: center; justify-content: space-between; padding: 1rem; background: var(--bg-card, rgba(255,255,255,0.05)); border: 1px solid var(--border-color); border-radius: 12px;'
+    });
+    const themeTextGroup = ui.createElement('div', []);
+    themeTextGroup.appendChild(ui.createElementWithText('div', isAr ? '🌙 مظهر اللوحة (Theme)' : '🌙 Display Theme', [], { style: 'font-weight: 700; color: var(--text-primary);' }));
+    themeTextGroup.appendChild(ui.createElementWithText('div', isDark ? (isAr ? 'الوضع الحالي: الداكن (Dark Mode)' : 'Current: Dark Mode') : (isAr ? 'الوضع الحالي: الفاتح (Light Mode)' : 'Current: Light Mode'), [], { style: 'font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px;' }));
+    themeRow.appendChild(themeTextGroup);
+
+    const themeBtn = ui.createElementWithText('button', isDark ? '☀️ Light' : '🌙 Dark', ['btn', 'btn-secondary', 'btn-sm'], {
+        style: 'border-radius: 8px; padding: 0.5rem 1rem; font-weight: 700; cursor: pointer;'
+    });
+    themeBtn.addEventListener('click', () => {
+        toggleTheme();
+        renderActiveTab();
+    });
+    themeRow.appendChild(themeBtn);
+    prefsPanel.appendChild(themeRow);
+
+    // Logout Section
+    const logoutRow = ui.createElement('div', [], {
+        style: 'display: flex; align-items: center; justify-content: space-between; padding: 1rem; background: rgba(255, 71, 87, 0.08); border: 1px solid rgba(255, 71, 87, 0.3); border-radius: 12px; margin-top: 0.5rem;'
+    });
+    const logoutTextGroup = ui.createElement('div', []);
+    logoutTextGroup.appendChild(ui.createElementWithText('div', isAr ? '🚪 تسجيل الخروج' : '🚪 Account Logout', [], { style: 'font-weight: 700; color: #ff4757;' }));
+    logoutTextGroup.appendChild(ui.createElementWithText('div', isAr ? 'إنهاء الجلسة الحالية والعودة لصفحة الدخول' : 'End current session and return to login screen', [], { style: 'font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px;' }));
+    logoutRow.appendChild(logoutTextGroup);
+
+    const logoutBtn = ui.createElementWithText('button', isAr ? 'خروج' : 'Logout', ['btn', 'btn-danger', 'btn-sm'], {
+        style: 'border-radius: 8px; padding: 0.5rem 1.2rem; font-weight: 700; cursor: pointer;'
+    });
+    logoutBtn.addEventListener('click', () => {
+        const desktopLogout = document.getElementById('btn-logout');
+        if (desktopLogout) {
+            desktopLogout.click();
+        } else {
+            localStorage.removeItem('qs_vendor_token');
+            localStorage.removeItem('qs_vendor_user');
+            window.location.replace('login.html');
+        }
+    });
+    logoutRow.appendChild(logoutBtn);
+    prefsPanel.appendChild(logoutRow);
+
+    settingsGrid.appendChild(prefsPanel);
+    parent.appendChild(settingsGrid);
 }
 
 /* ==========================================================================
@@ -2495,6 +2583,45 @@ function renderProfileTab(parent) {
     descWrap.appendChild(descIn);
     infoPanel.appendChild(descWrap);
 
+    // Main Category field for Market/Store
+    const catWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 1.25rem;' });
+    catWrap.appendChild(ui.createElementWithText('label', getLanguage() === 'ar' ? 'القسم الرئيسي للمتجر 🛒' : 'Main Store Category 🛒', [], { style: 'font-size: 0.85rem; font-weight: 600;' }));
+    const catSelect = ui.createElement('select', ['select-input'], { style: 'width: 100%; font-size: 0.9rem; padding: 0.6rem;' });
+    catSelect.innerHTML = `<option value="">${getLanguage() === 'ar' ? '⏳ جاري تحميل الأقسام...' : '⏳ Loading categories...'}</option>`;
+    catWrap.appendChild(catSelect);
+    infoPanel.appendChild(catWrap);
+
+    // Fetch main categories for Markets (userRole = 1 or 4)
+    (async () => {
+        try {
+            const res = await apiFetch('/api/v1/main-categories', {
+                method: 'PATCH',
+                body: JSON.stringify({ pageNumber: 1, pageSize: 100, enablePagination: false })
+            });
+            const mainCats = Array.isArray(res) ? res : (res?.result ?? []);
+            const mktCats = mainCats.filter(c => c.userRole === 1 || c.userRole === 4 || c.userRole === 'Vendor' || c.userRole === undefined);
+            const displayCats = mktCats.length > 0 ? mktCats : mainCats;
+
+            catSelect.replaceChildren();
+            if (displayCats.length === 0) {
+                const opt = ui.createElement('option', [], { value: '' });
+                opt.textContent = getLanguage() === 'ar' ? 'لا توجد أقسام متاحة' : 'No categories available';
+                catSelect.appendChild(opt);
+                return;
+            }
+
+            displayCats.forEach(c => {
+                const opt = ui.createElement('option', [], { value: String(c.id) });
+                opt.textContent = c.name;
+                if (user.categoryId == c.id || user.mainCategoryId == c.id) opt.selected = true;
+                catSelect.appendChild(opt);
+            });
+        } catch (err) {
+            console.error('Failed to load main categories:', err);
+            catSelect.innerHTML = `<option value="">${getLanguage() === 'ar' ? '❌ فشل تحميل الأقسام' : '❌ Failed to load categories'}</option>`;
+        }
+    })();
+
     const saveInfoBtn = ui.createElementWithText('button', t('rest_profile_save_btn'), ['btn', 'btn-primary']);
     const infoFeedback = ui.createElement('span', [], { style: 'font-size: 0.85rem; margin-left: 1rem;' });
     const infoFooter = ui.createElement('div', [], { style: 'display: flex; align-items: center;' });
@@ -2508,12 +2635,16 @@ function renderProfileTab(parent) {
         nameIn.style.borderColor = '';
         saveInfoBtn.disabled = true;
         saveInfoBtn.textContent = getLanguage() === 'ar' ? 'جارٍ الحفظ...' : 'Saving...';
-        const fresh = getUserSettings();
-        const newRawDesc = '__SETTINGS__:' + JSON.stringify({ days: fresh.settings.days, hours: fresh.settings.hours, description: descIn.value.trim() });
+        const newRawDesc = descIn.value.trim();
+        const selectedCatId = catSelect.value ? parseInt(catSelect.value, 10) : null;
         try {
-            await apiFetch('/api/v1/users/update-profile', { method: 'PUT', body: JSON.stringify({ name, photo: currentPhoto, description: newRawDesc }) });
+            const body = { name, photo: currentPhoto, description: newRawDesc };
+            if (selectedCatId) body.categoryId = selectedCatId;
+
+            await apiFetch('/api/v1/users/update-profile', { method: 'PUT', body: JSON.stringify(body) });
             const profile = JSON.parse(localStorage.getItem('qs_vendor_user') || '{}');
             profile.name = name; profile.photo = currentPhoto; profile.description = newRawDesc;
+            if (selectedCatId) profile.categoryId = selectedCatId;
             localStorage.setItem('qs_vendor_user', JSON.stringify(profile));
             updateHeaderVendorName();
             infoFeedback.textContent = '✅ ' + t('rest_profile_saved');

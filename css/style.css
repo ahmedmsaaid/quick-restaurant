@@ -2741,6 +2741,15 @@ html[dir="rtl"] .category-badge-chip {
     visibility: visible;
 }
 
+@media screen and (min-width: 993px) {
+    .btn-mobile-menu,
+    #btn-mobile-sidebar-toggle {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+    }
+}
+
 @media screen and (max-width: 992px) {
     .btn-mobile-menu,
     #btn-mobile-sidebar-toggle {
@@ -2860,27 +2869,57 @@ html[dir="rtl"] .category-badge-chip {
 
 /* Mobile Bottom Navigation Bar System */
 .mobile-bottom-nav {
-    display: none;
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    height: 0 !important;
+    max-height: 0 !important;
+    overflow: hidden !important;
+}
+
+@media screen and (min-width: 769px) {
+    .mobile-bottom-nav {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+        height: 0 !important;
+        max-height: 0 !important;
+        overflow: hidden !important;
+    }
 }
 
 @media screen and (max-width: 768px) {
     .mobile-bottom-nav {
         display: flex !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        pointer-events: auto !important;
+        height: 60px !important;
+        max-height: 60px !important;
         position: fixed !important;
         bottom: 0 !important;
         left: 0 !important;
         right: 0 !important;
         width: 100vw !important;
-        height: 60px !important;
         background: var(--bg-surface-glass, #ffffff) !important;
         backdrop-filter: blur(12px) !important;
         -webkit-backdrop-filter: blur(12px) !important;
         border-top: 1px solid var(--border-color, #e1eeee) !important;
         z-index: 99990 !important;
-        justify-content: space-around !important;
+        justify-content: flex-start !important;
         align-items: center !important;
-        padding: 0 4px !important;
+        padding: 0 8px !important;
         box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.08) !important;
+        overflow-x: auto !important;
+        white-space: nowrap !important;
+        scrollbar-width: none !important;
+        -ms-overflow-style: none !important;
+    }
+
+    .mobile-bottom-nav::-webkit-scrollbar {
+        display: none !important;
     }
 
     [data-theme="dark"] .mobile-bottom-nav {
@@ -2889,17 +2928,18 @@ html[dir="rtl"] .category-badge-chip {
     }
 
     .mobile-nav-item {
-        display: flex !important;
+        display: inline-flex !important;
         flex-direction: column !important;
         align-items: center !important;
         justify-content: center !important;
         background: transparent !important;
         border: none !important;
         color: var(--text-secondary, #5f6f72) !important;
-        padding: 4px 8px !important;
+        padding: 4px 12px !important;
         font-family: 'Cairo', sans-serif !important;
         cursor: pointer !important;
-        flex: 1 !important;
+        flex: 0 0 auto !important;
+        min-width: 64px !important;
         gap: 2px !important;
         transition: all 0.2s ease !important;
     }
