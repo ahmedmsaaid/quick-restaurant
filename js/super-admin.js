@@ -429,6 +429,18 @@ async function fetchAccounts(status = 0) {
             ];
         }
 
+        const mainCategoriesMap = new Map();
+        try {
+            const catRes = await apiFetch('/api/v1/main-categories', {
+                method: 'PATCH',
+                body: JSON.stringify({ pageNumber: 1, pageSize: 100, enablePagination: false })
+            });
+            const cats = Array.isArray(catRes) ? catRes : (catRes?.result ?? []);
+            cats.forEach(c => mainCategoriesMap.set(c.id, c.name));
+        } catch (e) {
+            console.warn('Could not prefetch main categories map:', e);
+        }
+
         return usersData.map(u => {
             const roleVal = parseInt(u.role);
 
@@ -453,6 +465,9 @@ async function fetchAccounts(status = 0) {
             }
 
             const statusVal = parseInt(u.status) || 0;
+            const catId = u.categoryId || u.mainCategoryId || null;
+            const catName = u.categoryName || u.categoryNameAr || u.categoryNameEn || (u.category ? u.category.name : (catId ? mainCategoriesMap.get(catId) : null));
+
             return {
                 id: u.id?.toString() || '',
                 name: u.name || 'N/A',
@@ -460,6 +475,8 @@ async function fetchAccounts(status = 0) {
                 email: u.email || '',
                 role: roleName,
                 vendorType: vendorType,
+                categoryId: catId,
+                categoryName: catName,
                 status: statusVal,        // 0=pending, 1=active, 2=rejected
                 isActive: statusVal === 1,
                 isBlocked: statusVal === 2,
@@ -589,7 +606,20 @@ function renderUsersTable(targetEl, usersList) {
         const row = ui.createElement('tr');
         
         row.appendChild(ui.createElementWithText('td', u.id, [], { style: 'font-family: monospace; color: var(--text-muted);' }));
-        row.appendChild(ui.createElementWithText('td', u.name, [], { style: 'font-weight: 600;' }));
+        
+        // Name Cell + Category Badge
+        const nameCell = ui.createElement('td', [], { style: 'display: flex; flex-direction: column; gap: 0.2rem; justify-content: center;' });
+        const nameText = ui.createElementWithText('span', u.name || '-', [], { style: 'font-weight: 700; color: var(--text-primary); font-size: 0.9rem;' });
+        nameCell.appendChild(nameText);
+
+        if ((u.role === 'Vendor' || u.isVendor) && (u.categoryName || u.categoryId)) {
+            const catLabel = u.categoryName || (getLanguage() === 'ar' ? `قسم #${u.categoryId}` : `Cat #${u.categoryId}`);
+            const catBadge = ui.createElementWithText('span', `🏷️ ${catLabel}`, [], {
+                style: 'display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.72rem; color: #8b5cf6; background: rgba(139, 92, 246, 0.12); border: 1px solid rgba(139, 92, 246, 0.25); border-radius: 12px; padding: 0.12rem 0.5rem; width: fit-content; font-weight: 600;'
+            });
+            nameCell.appendChild(catBadge);
+        }
+        row.appendChild(nameCell);
         
         const roleCell = ui.createElement('td');
         let roleBadgeClass = 'badge-info';
@@ -2025,9 +2055,11 @@ async function renderMainCategoriesTab(container) {
     }
 
     function getRoleBadge(role) {
-        if (role === 4 || role === 'Vendor')    return { emoji: '🏪', label: isAr ? 'المتاجر والمطاعم' : 'Vendors',   color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' };
-        if (role === 3 || role === 'Captain')   return { emoji: '🛵', label: isAr ? 'كباتن التوصيل' : 'Captains',   color: '#3b82f6', bg: 'rgba(59,130,246,0.15)' };
-        if (role === 2 || role === 'Customer')  return { emoji: '👤', label: isAr ? 'العملاء' : 'Customers',         color: '#10b981', bg: 'rgba(16,185,129,0.15)' };
+        if (role === 0) return { emoji: '🍔', label: isAr ? 'مطاعم (Role 0)' : 'Restaurants (Role 0)', color: '#ef4444', bg: 'rgba(239,68,68,0.15)' };
+        if (role === 1) return { emoji: '🛒', label: isAr ? 'ماركت ومتاجر (Role 1)' : 'Markets & Stores (Role 1)', color: '#10b981', bg: 'rgba(16,185,129,0.15)' };
+        if (role === 4 || role === 'Vendor') return { emoji: '🏪', label: isAr ? 'عام للمتاجر والمطاعم' : 'All Vendors', color: '#f59e0b', bg: 'rgba(245,158,11,0.15)' };
+        if (role === 3 || role === 'Captain') return { emoji: '🛵', label: isAr ? 'كباتن التوصيل' : 'Captains', color: '#3b82f6', bg: 'rgba(59,130,246,0.15)' };
+        if (role === 2 || role === 'Customer') return { emoji: '👤', label: isAr ? 'العملاء' : 'Customers', color: '#8b5cf6', bg: 'rgba(139,92,246,0.15)' };
         return { emoji: '📁', label: isAr ? 'عام' : 'General', color: '#8b5cf6', bg: 'rgba(139,92,246,0.15)' };
     }
 
@@ -2070,7 +2102,9 @@ async function renderMainCategoriesTab(container) {
     const filterRow = ui.createElement('div', [], { style: 'display: flex; gap: 0.5rem; flex-wrap: wrap; border-top: 1px solid var(--border-color); padding-top: 0.85rem;' });
     const rolesFilterList = [
         { id: 'all', label: isAr ? '🌐 الكل' : '🌐 All', roleVal: null },
-        { id: 'vendor', label: isAr ? '🏪 المتاجر والمطاعم' : '🏪 Vendors', roleVal: 4 },
+        { id: 'restaurant', label: isAr ? '🍔 مطاعم' : '🍔 Restaurants', roleVal: 0 },
+        { id: 'market', label: isAr ? '🛒 ماركت ومتاجر' : '🛒 Markets', roleVal: 1 },
+        { id: 'vendor', label: isAr ? '🏪 عام للمتاجر' : '🏪 All Vendors', roleVal: 4 },
         { id: 'captain', label: isAr ? '🛵 الكباتن' : '🛵 Captains', roleVal: 3 },
         { id: 'customer', label: isAr ? '👤 العملاء' : '👤 Customers', roleVal: 2 }
     ];
@@ -2127,7 +2161,7 @@ async function renderMainCategoriesTab(container) {
         const query = searchInput.value.toLowerCase().trim();
         let filtered = categoriesList;
         if (currentRoleFilter !== null) {
-            filtered = filtered.filter(c => c.userRole === currentRoleFilter || (currentRoleFilter === 4 && (c.userRole === 'Vendor' || c.userRole === 4)));
+            filtered = filtered.filter(c => c.userRole === currentRoleFilter || (currentRoleFilter === 4 && (c.userRole === 'Vendor' || c.userRole === 4 || c.userRole === 0 || c.userRole === 1)));
         }
         if (query) {
             filtered = filtered.filter(c => (c.name || '').toLowerCase().includes(query));
@@ -2292,12 +2326,14 @@ async function renderMainCategoriesTab(container) {
 
         // ── Role ──
         const roleGroup = ui.createElement('div', ['form-group']);
-        roleGroup.appendChild(ui.createElementWithText('label', isAr ? 'الدور المستهدف' : 'Target Role', ['form-label']));
-        const roleSelect = ui.createElement('select', ['select-input'], { style: 'width:100%;' });
+        roleGroup.appendChild(ui.createElementWithText('label', isAr ? 'نوع التخاطب / الدور المستهدف *' : 'Target Vendor/Role *', ['form-label']));
+        const roleSelect = ui.createElement('select', ['select-input'], { style: 'width:100%; font-size:0.9rem;' });
         [
-            { val: 4, label: `🏪 ${isAr ? 'متاجر ومطاعم' : 'Vendor'}` },
-            { val: 3, label: `🛵 ${isAr ? 'كباتن توصيل' : 'Captain'}` },
-            { val: 2, label: `👤 ${isAr ? 'عملاء' : 'Customer'}` }
+            { val: 0, label: `🍔 ${isAr ? 'مطاعم (Restaurants - Role 0)' : 'Restaurants (Role 0)'}` },
+            { val: 1, label: `🛒 ${isAr ? 'ماركت ومتاجر (Markets - Role 1)' : 'Markets & Stores (Role 1)'}` },
+            { val: 4, label: `🏪 ${isAr ? 'عام للمتاجر والمطاعم (All Vendors)' : 'All Vendors (Role 4)'}` },
+            { val: 3, label: `🛵 ${isAr ? 'كباتن توصيل (Captains)' : 'Captains'}` },
+            { val: 2, label: `👤 ${isAr ? 'عملاء (Customers)' : 'Customers'}` }
         ].forEach(({ val, label }) => {
             const opt = ui.createElement('option', [], { value: String(val) });
             opt.textContent = label;
@@ -3498,6 +3534,9 @@ async function renderSettingsTab(parent) {
     header.appendChild(ui.createElementWithText('p', t('sa_settings_sub'), [], { style: 'margin: 0; color: var(--text-secondary); font-size: 0.85rem;' }));
     formPanel.appendChild(header);
 
+    // ── Outer scope map sync function reference ─────────────────────────────
+    let syncMapFromInputs;
+
     // ── Default values (always rendered immediately) ─────────────────────────
     let settingsData = {
         id: 1,
@@ -3585,9 +3624,9 @@ async function renderSettingsTab(parent) {
             categoryNameEn: inputCatEn.value.trim() || 'Exclusive Offers',
             categoryNameAr: inputCatAr.value.trim() || 'عروض حصرية',
             orderInterval: parseInt(inputInterval.value) || 60,
-            allowedAreaLatitude: settingsData.allowedAreaLatitude ?? 30.0444,
-            allowedAreaLongitude: settingsData.allowedAreaLongitude ?? 31.2357,
-            allowedAreaRadiusKm: settingsData.allowedAreaRadiusKm ?? 10.0
+            allowedAreaLatitude: (typeof inputZoneLat !== 'undefined' && inputZoneLat && parseFloat(inputZoneLat.value)) ? parseFloat(inputZoneLat.value) : (settingsData.allowedAreaLatitude ?? 30.0444),
+            allowedAreaLongitude: (typeof inputZoneLng !== 'undefined' && inputZoneLng && parseFloat(inputZoneLng.value)) ? parseFloat(inputZoneLng.value) : (settingsData.allowedAreaLongitude ?? 31.2357),
+            allowedAreaRadiusKm: (typeof inputZoneRadius !== 'undefined' && inputZoneRadius && parseFloat(inputZoneRadius.value)) ? parseFloat(inputZoneRadius.value) : (settingsData.allowedAreaRadiusKm ?? 10.0)
         };
 
         if (payload.orderMinFee > payload.orderMaxFee) {
@@ -3650,6 +3689,21 @@ async function renderSettingsTab(parent) {
             inputCatEn.value = (d.categoryNameEn && d.categoryNameEn !== 'string') ? d.categoryNameEn : 'Exclusive Offers';
             inputCatAr.value = (d.categoryNameAr && d.categoryNameAr !== 'string') ? d.categoryNameAr : 'عروض حصرية';
             inputInterval.value = (d.orderInterval && d.orderInterval > 0) ? d.orderInterval : 60;
+
+            const latVal = d.allowedAreaLatitude ?? d.AllowedAreaLatitude ?? d.latitude;
+            const lngVal = d.allowedAreaLongitude ?? d.AllowedAreaLongitude ?? d.longitude;
+            const radVal = d.allowedAreaRadiusKm ?? d.AllowedAreaRadiusKm;
+
+            if (latVal !== undefined && latVal !== null && typeof inputZoneLat !== 'undefined' && inputZoneLat) inputZoneLat.value = parseFloat(latVal);
+            if (lngVal !== undefined && lngVal !== null && typeof inputZoneLng !== 'undefined' && inputZoneLng) inputZoneLng.value = parseFloat(lngVal);
+            if (radVal !== undefined && radVal !== null && typeof inputZoneRadius !== 'undefined' && inputZoneRadius) {
+                inputZoneRadius.value = parseFloat(radVal);
+                if (typeof radiusSlider !== 'undefined' && radiusSlider) radiusSlider.value = parseFloat(radVal);
+                if (typeof radiusLabel !== 'undefined' && radiusLabel) radiusLabel.textContent = `${parseFloat(radVal).toFixed(1)} km`;
+            }
+            if (typeof syncMapFromInputs === 'function') {
+                syncMapFromInputs();
+            }
         }
     } catch (err) {
         console.error('Failed to load settings:', err);
@@ -3788,6 +3842,24 @@ async function renderSettingsTab(parent) {
     lngGroup.appendChild(inputZoneLng);
     zoneInputsRow.appendChild(lngGroup);
 
+    // Swap Lat/Lng button
+    const swapGroup = ui.createElement('div', ['form-group'], { style: 'margin: 0; display: flex; align-items: flex-end;' });
+    const swapBtn = ui.createElement('button', ['btn', 'btn-secondary'], {
+        type: 'button',
+        title: isAr ? 'تبديل خط العرض وخط الطول' : 'Swap Latitude and Longitude',
+        style: 'height: 42px; width: 100%; padding: 0 0.8rem; font-size: 0.85rem; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 0.4rem; border-color: var(--brand-teal); color: var(--brand-teal);'
+    });
+    swapBtn.innerHTML = '🔄 ' + (isAr ? 'تبديل النقط' : 'Swap Lat/Lng');
+    swapBtn.addEventListener('click', () => {
+        const temp = inputZoneLat.value;
+        inputZoneLat.value = inputZoneLng.value;
+        inputZoneLng.value = temp;
+        if (typeof syncMapFromInputs === 'function') syncMapFromInputs();
+        ui.showToast(isAr ? 'تم تبديل الإحداثيات (العرض ↔ الطول)' : 'Coordinates swapped', 'info');
+    });
+    swapGroup.appendChild(swapBtn);
+    zoneInputsRow.appendChild(swapGroup);
+
     const radiusGroup = ui.createElement('div', ['form-group'], { style: 'margin: 0;' });
     radiusGroup.appendChild(ui.createElementWithText('label', t('sa_settings_zone_radius'), ['form-label']));
     const inputZoneRadius = ui.createElement('input', ['search-input'], {
@@ -3914,14 +3986,15 @@ async function renderSettingsTab(parent) {
         });
         let centerMarker = L.marker([initLat, initLng], { draggable: true, icon: centerIcon }).addTo(zoneMap);
 
-        function syncMapFromInputs() {
+        syncMapFromInputs = function() {
             const lat = parseFloat(inputZoneLat.value) || 30.0444;
             const lng = parseFloat(inputZoneLng.value) || 31.2357;
             const radKm = parseFloat(inputZoneRadius.value) || 10.0;
             centerMarker.setLatLng([lat, lng]);
             zoneCircle.setLatLng([lat, lng]);
             zoneCircle.setRadius(radKm * 1000);
-        }
+            zoneMap.setView([lat, lng]);
+        };
 
         function syncInputsFromLatLng(lat, lng) {
             inputZoneLat.value = lat.toFixed(6);
