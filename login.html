@@ -239,19 +239,19 @@
 </head>
 <body class="portal-body">
     <!-- Login Header -->
-    <header class="portal-header" style="display: flex !important; flex-direction: row !important; align-items: center !important; justify-content: space-between !important; flex-wrap: nowrap !important; height: 72px !important; padding: 0 16px !important; background: linear-gradient(135deg, #004D40 0%, #00796B 100%) !important; border-bottom: 3px solid #FF9800 !important; position: sticky !important; top: 0 !important; z-index: 99999 !important; width: 100% !important; box-sizing: border-box !important;">
+    <header class="portal-header" style="display: flex !important; flex-direction: row !important; align-items: center !important; justify-content: space-between !important; flex-wrap: nowrap !important; height: 90px !important; padding: 0 16px !important; background: linear-gradient(135deg, #004D40 0%, #00796B 100%) !important; border-bottom: 3px solid #FF9800 !important; position: sticky !important; top: 0 !important; z-index: 99999 !important; width: 100% !important; box-sizing: border-box !important;">
         <!-- Right (اليمين in RTL): Brand Title / Portal Title -->
         <div class="header-right" style="display: flex !important; align-items: center !important; gap: 6px !important; flex: 1 !important; justify-content: flex-start !important; min-width: 0 !important;">
-            <h1 class="logo-text header-right-text" id="login-header-title" style="font-size: 0.98rem !important; font-weight: 800 !important; color: #ffffff !important; margin: 0 !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; font-family: 'Cairo', sans-serif !important;" data-i18n="login_portal_badge">لوحة التحكم السريعة</h1>
+            <h1 class="logo-text header-right-text" id="login-header-title" style="font-size: 1.05rem !important; font-weight: 800 !important; color: #ffffff !important; margin: 0 !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; font-family: 'Cairo', sans-serif !important;" data-i18n="login_portal_badge">لوحة التحكم السريعة</h1>
         </div>
         <!-- Center (في النص): Quick Logo -->
-        <div class="header-center" style="display: flex !important; align-items: center !important; justify-content: center !important; flex: 1.5 !important; min-width: 0 !important;">
-            <img src="assets/images/home_logo.png" alt="Quick Service Logo" class="brand-logo-wide" style="height: 56px !important; width: auto !important; max-width: 210px !important; object-fit: contain !important; filter: drop-shadow(0 3px 8px rgba(0,0,0,0.35)) !important;">
+        <div class="header-center" style="display: flex !important; align-items: center !important; justify-content: center !important; flex: 3 !important; min-width: 0 !important; padding: 0 10px !important;">
+            <img src="assets/images/home_logo.png" alt="Quick Service Logo" class="brand-logo-wide" style="height: 80px !important; width: 100% !important; max-width: 550px !important; object-fit: contain !important; filter: drop-shadow(0 4px 12px rgba(0,0,0,0.5)) !important;">
         </div>
         <!-- Left (الشمال in RTL): Control Buttons (Home, Theme, Language) -->
         <div class="header-left" style="display: flex !important; align-items: center !important; justify-content: flex-end !important; gap: 6px !important; flex: 1 !important; min-width: 0 !important;">
-            <button class="btn btn-secondary btn-sm btn-theme-toggle" id="btn-theme-toggle" style="width: 34px !important; height: 34px !important; border-radius: 50% !important; font-size: 1rem !important; padding: 0 !important; display: flex !important; align-items: center !important; justify-content: center !important; color: #ffffff !important; background: rgba(255,255,255,0.2) !important; border: 1.5px solid rgba(255,255,255,0.5) !important; flex-shrink: 0 !important;" title="Toggle Theme">🌙</button>
-            <button id="btn-lang-toggle" class="btn btn-secondary btn-sm" style="border-radius: 8px !important; font-size: 0.78rem !important; font-weight: 700 !important; padding: 0.3rem 0.55rem !important; color: #ffffff !important; background: rgba(255,255,255,0.2) !important; border: 1px solid rgba(255,255,255,0.4) !important; white-space: nowrap !important;">العربية</button>
+            <button class="btn btn-secondary btn-sm btn-theme-toggle" id="btn-theme-toggle" style="width: 38px !important; height: 38px !important; border-radius: 50% !important; font-size: 1.1rem !important; padding: 0 !important; display: flex !important; align-items: center !important; justify-content: center !important; color: #ffffff !important; background: rgba(255,255,255,0.2) !important; border: 1.5px solid rgba(255,255,255,0.5) !important; flex-shrink: 0 !important;" title="Toggle Theme">🌙</button>
+            <button id="btn-lang-toggle" class="btn btn-secondary btn-sm" style="border-radius: 8px !important; font-size: 0.85rem !important; font-weight: 700 !important; padding: 0.35rem 0.65rem !important; color: #ffffff !important; background: rgba(255,255,255,0.2) !important; border: 1px solid rgba(255,255,255,0.4) !important; white-space: nowrap !important;">العربية</button>
         </div>
     </header>
 
@@ -259,7 +259,7 @@
     <main class="login-wrapper">
         <div class="login-card">
             <header class="login-header">
-                <img src="assets/images/logo_withoutname.png" alt="Quick App Logo" class="brand-logo-img" style="height: 75px; margin-bottom: 1rem;">
+                <img src="assets/images/home_logo.png" alt="Quick App Logo" class="brand-logo-img" style="height: 110px; width: 100%; max-width: 420px; object-fit: contain; margin-bottom: 1.2rem; filter: drop-shadow(0 4px 12px rgba(0,0,0,0.5));">
                 <h1 class="login-title" data-i18n="admin_login_title">Super Admin Portal</h1>
                 <p class="login-subtitle" data-i18n="admin_login_subtitle">Securely authenticate to launch operations monitor</p>
             </header>
