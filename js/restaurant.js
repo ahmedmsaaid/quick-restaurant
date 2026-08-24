@@ -10,6 +10,17 @@ import { ApiClient, ImageService, Logger } from './core.js';
 import { initFCMNotificationService } from './fcm-helper.js';
 console.log('🚀 restaurant.js module loaded');
 
+function clearInvalid(inputEl) {
+    if (!inputEl) return;
+    if (typeof ui.clearInputInvalid === 'function') {
+        ui.clearInputInvalid(inputEl);
+    } else {
+        inputEl.classList.remove('input-invalid');
+        const next = inputEl.nextElementSibling;
+        if (next && next.classList.contains('validation-error-msg')) next.remove();
+    }
+}
+
 let activeTab = 'queue';
 let myRestaurantId = null;
 let restaurantMenu = [];
@@ -17,6 +28,7 @@ let orders = [];
 let categories = []; // In-memory categories state
 let discounts = []; // In-memory discounts state
 let offers = [];    // In-memory offers state
+let offerStatusFilter = 'all';
 let branches = [];  // In-memory branches state
 let categoriesLoaded = false;
 let discountsLoaded = false;
@@ -186,16 +198,30 @@ async function toggleActivityStatus() {
     return profile.active;
 }
 
+// Helper: Toggle store busy status via API (PATCH /api/v1/users/toggle-busy)
+async function toggleBusyStatus() {
+    const profile = JSON.parse(localStorage.getItem('qs_vendor_user') || '{}');
+    await apiFetch('/api/v1/users/toggle-busy', { method: 'PATCH' });
+    // Flip busy status locally
+    profile.busy = !(profile.busy === true || profile.busy === 1);
+    localStorage.setItem('qs_vendor_user', JSON.stringify(profile));
+    return profile.busy;
+}
+
 // Helper: Update user settings on profile (days/hours/description only)
 async function updateUserSettings(days, hours, descriptionText) {
     const profile = JSON.parse(localStorage.getItem('qs_vendor_user') || '{}');
+    const isBusy = !!(profile.busy === true || profile.busy === 1);
+    const body = {
+        name: profile.name || 'Vendor',
+        photo: profile.photo || '',
+        description: descriptionText,
+        busy: isBusy
+    };
+    if (profile.categoryId) body.categoryId = parseInt(profile.categoryId, 10);
     await apiFetch('/api/v1/users/update-profile', {
         method: 'PUT',
-        body: JSON.stringify({
-            name: profile.name || 'Vendor',
-            photo: profile.photo || '',
-            description: descriptionText
-        })
+        body: JSON.stringify(body)
     });
     // Update local user object
     profile.description = descriptionText;
@@ -365,12 +391,13 @@ async function refreshOffers() {
                 tempOffers.push({
                     id: o.id, name: o.name, price: o.price,
                     featuredPhoto: o.featuredPhoto || '',
+                    otherPhotos: Array.isArray(o.otherPhotos) && o.otherPhotos.length > 0 ? o.otherPhotos : (o.featuredPhoto ? [o.featuredPhoto] : []),
                     description: o.description || '',
                     active: o.active, approved: o.approved,
                     offerType: o.offerType, type: o.type,
-                    numberOfClicks: o.numberOfClicks || 0,
-                    numberOfWatches: o.numberOfWatches || 0,
-                    numberOfBooking: o.numberOfBooking || 0,
+                    numberOfClicks: o.numberOfClicks,
+                    numberOfWatches: o.numberOfWatches,
+                    numberOfBooking: o.numberOfBooking,
                     products: resolvedProducts,
                     createdOn: o.createdOn
                 });
@@ -1117,6 +1144,10 @@ function renderSettingsTab(parent) {
     prefsPanel.appendChild(logoutRow);
 
     settingsGrid.appendChild(prefsPanel);
+
+    // Render Working Hours & Emergency Closure settings panel
+    renderScheduleTab(settingsGrid);
+
     parent.appendChild(settingsGrid);
 }
 
@@ -2669,10 +2700,178 @@ async function handleDeleteDiscount(disc) {
 /* ==========================================================================
    Tab 7: Promotional Offers
    ========================================================================== */
+function showEditRestOfferModal(offer) {
+    const isAr = getLanguage() === 'ar';
+    const form = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 1rem; min-width: 320px; max-width: 480px;' });
+
+    // Name
+    const nameWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem;' });
+    nameWrap.appendChild(ui.createElementWithText('label', t('offer_modal_name'), [], { style: 'font-weight: 600; font-size: 0.85rem;' }));
+    const nameIn = ui.createElement('input', ['search-input'], { type: 'text', value: offer.name || '' });
+    nameWrap.appendChild(nameIn);
+    form.appendChild(nameWrap);
+
+    // Description
+    const descWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem;' });
+    descWrap.appendChild(ui.createElementWithText('label', t('offer_modal_desc'), [], { style: 'font-weight: 600; font-size: 0.85rem;' }));
+    const descIn = ui.createElement('textarea', ['search-input'], { style: 'min-height: 60px; font-family: inherit; resize: vertical;' });
+    descIn.value = offer.description || '';
+    descWrap.appendChild(descIn);
+    form.appendChild(descWrap);
+
+    // Price
+    const priceWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem;' });
+    priceWrap.appendChild(ui.createElementWithText('label', t('offer_modal_price'), [], { style: 'font-weight: 600; font-size: 0.85rem;' }));
+    const priceIn = ui.createElement('input', ['search-input'], { type: 'number', step: '0.01', min: '0', value: offer.price || '0' });
+    priceWrap.appendChild(priceIn);
+    form.appendChild(priceWrap);
+
+    // Featured Image
+    const imgWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem;' });
+    imgWrap.appendChild(ui.createElementWithText('label', t('offer_modal_photo'), [], { style: 'font-weight: 600; font-size: 0.85rem;' }));
+    const imgRow = ui.createElement('div', [], { style: 'display: flex; gap: 1rem; align-items: center;' });
+    const imgInput = ui.createElement('input', [], { type: 'file', accept: 'image/*', style: 'display: none;' });
+    const uploadImgBtn = ui.createElementWithText('button', isAr ? 'تغيير الصورة' : 'Change Image', ['btn', 'btn-secondary']);
+    uploadImgBtn.addEventListener('click', () => imgInput.click());
+
+    let uploadedPhotoKey = offer.featuredPhoto || '';
+    const previewImg = ui.createElement('img', [], {
+        src: uploadedPhotoKey ? getImageUrl(uploadedPhotoKey) : '',
+        style: `width: 50px; height: 50px; border-radius: var(--radius-sm); border: 1px solid var(--border-color); object-fit: cover; display: ${uploadedPhotoKey ? 'block' : 'none'};`
+    });
+
+    imgInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            previewImg.src = URL.createObjectURL(file);
+            previewImg.style.display = 'block';
+            try {
+                const result = await uploadImage(file);
+                if (result) {
+                    uploadedPhotoKey = result;
+                    previewImg.src = getImageUrl(uploadedPhotoKey);
+                }
+            } catch (_) {
+                ui.showToast(t('offer_modal_img_upload_error'), 'error');
+            }
+        }
+    });
+    imgRow.appendChild(uploadImgBtn);
+    imgRow.appendChild(imgInput);
+    imgRow.appendChild(previewImg);
+    imgWrap.appendChild(imgRow);
+    form.appendChild(imgWrap);
+
+    // Active Toggle Switch
+    const activeLabel = ui.createElement('label', ['switch-container'], { style: 'margin-top: 0.5rem;' });
+    const activeInput = ui.createElement('input', ['switch-input'], { type: 'checkbox' });
+    activeInput.checked = !!offer.active;
+    const activeSlider = ui.createElement('div', ['switch-slider']);
+    activeLabel.appendChild(activeInput);
+    activeLabel.appendChild(activeSlider);
+    activeLabel.appendChild(ui.createElementWithText('span', isAr ? 'تفعيل العرض' : 'Enable Offer', [], { style: 'font-size: 0.85rem; font-weight: 600;' }));
+    form.appendChild(activeLabel);
+
+    ui.showModal(isAr ? '✏️ تعديل العرض' : '✏️ Edit Offer', form, [
+        {
+            text: isAr ? 'حفظ التعديلات' : 'Save Changes',
+            type: 'success',
+            closeOnClick: false,
+            onClick: async () => {
+                const name = nameIn.value.trim();
+                const priceVal = priceIn.value.trim();
+                const description = descIn.value.trim();
+
+                clearInvalid(nameIn);
+                clearInvalid(priceIn);
+
+                if (!name) {
+                    ui.setInputInvalid(nameIn, t('offer_modal_err_name'));
+                    return;
+                }
+                const price = parseFloat(priceVal);
+                if (!priceVal || isNaN(price) || price < 0) {
+                    ui.setInputInvalid(priceIn, t('offer_modal_err_price'));
+                    return;
+                }
+
+                try {
+                    const otherPhotosList = (Array.isArray(offer.otherPhotos) && offer.otherPhotos.length > 0)
+                        ? offer.otherPhotos
+                        : (uploadedPhotoKey ? [uploadedPhotoKey] : (offer.featuredPhoto ? [offer.featuredPhoto] : []));
+
+                    const updateBody = {
+                        id: offer.id,
+                        name: name,
+                        price: price,
+                        description: description,
+                        featuredPhoto: uploadedPhotoKey,
+                        otherPhotos: otherPhotosList,
+                        active: activeInput.checked,
+                        offerType: offer.offerType ?? 1,
+                        type: offer.type ?? 0
+                    };
+                    if (offer.products && Array.isArray(offer.products)) {
+                        updateBody.productId = offer.products.map(p => ({
+                            productId: p.id || p.productId,
+                            quantity: p.quantity || 1
+                        }));
+                    }
+
+                    await apiFetch('/api/v1/offers', {
+                        method: 'PUT',
+                        body: JSON.stringify(updateBody)
+                    });
+
+                    ui.showToast(isAr ? 'تم تعديل العرض بنجاح' : 'Offer updated successfully', 'success');
+                    ui.closeModal();
+                    await refreshOffers();
+                    renderActiveTab();
+                } catch (e) {
+                    console.error('Failed to update offer:', e);
+                    ui.showToast((isAr ? 'فشل تعديل العرض: ' : 'Failed to update offer: ') + e.message, 'error');
+                }
+            }
+        },
+        {
+            text: t('btn_cancel'),
+            type: 'secondary',
+            onClick: ui.closeModal
+        }
+    ]);
+}
+
 function renderOffersTab(parent) {
+    const isAr = getLanguage() === 'ar';
     const wrapper = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 1rem; width: 100%;' });
 
-    const topBar = ui.createElement('div', [], { style: 'display: flex; justify-content: flex-end;' });
+    const topBar = ui.createElement('div', [], { style: 'display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;' });
+
+    // Status Filter Select
+    const filterWrap = ui.createElement('div', [], { style: 'display: flex; gap: 0.5rem; align-items: center;' });
+    filterWrap.appendChild(ui.createElementWithText('span', isAr ? 'فلترة العروض:' : 'Filter Offers:', [], { style: 'font-weight: 600; font-size: 0.85rem;' }));
+
+    const filterSelect = ui.createElement('select', ['search-input'], { style: 'padding: 0.4rem 0.8rem; font-size: 0.85rem; border-radius: var(--radius-md); width: auto;' });
+    const optAll = ui.createElementWithText('option', isAr ? 'الكل' : 'All', [], { value: 'all' });
+    const optActive = ui.createElementWithText('option', isAr ? 'نشط' : 'Active', [], { value: 'active' });
+    const optInactive = ui.createElementWithText('option', isAr ? 'غير نشط' : 'Inactive', [], { value: 'inactive' });
+
+    if (offerStatusFilter === 'active') optActive.selected = true;
+    else if (offerStatusFilter === 'inactive') optInactive.selected = true;
+    else optAll.selected = true;
+
+    filterSelect.appendChild(optAll);
+    filterSelect.appendChild(optActive);
+    filterSelect.appendChild(optInactive);
+
+    filterSelect.addEventListener('change', (e) => {
+        offerStatusFilter = e.target.value;
+        renderActiveTab();
+    });
+
+    filterWrap.appendChild(filterSelect);
+    topBar.appendChild(filterWrap);
+
     const addOfferBtn = ui.createElementWithText('button', t('offer_add_btn'), ['btn', 'btn-primary']);
     addOfferBtn.addEventListener('click', showAddRestOfferModal);
     topBar.appendChild(addOfferBtn);
@@ -2680,13 +2879,19 @@ function renderOffersTab(parent) {
 
     const grid = ui.createElement('div', ['analytics-grid'], { style: 'margin-top: 1rem; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.5rem; width: 100%;' });
 
-    if (offers.length === 0) {
+    const filteredOffers = offers.filter(o => {
+        if (offerStatusFilter === 'active') return !!o.active;
+        if (offerStatusFilter === 'inactive') return !o.active;
+        return true;
+    });
+
+    if (filteredOffers.length === 0) {
         const emptyState = ui.createElement('div', ['glass-panel'], { style: 'text-align: center; padding: 3rem 1.5rem; width: 100%; grid-column: 1 / -1;' });
         emptyState.appendChild(ui.createElementWithText('h3', t('offer_empty_title'), [], { style: 'margin-bottom: 0.5rem; font-size: 1.25rem;' }));
         emptyState.appendChild(ui.createElementWithText('p', t('offer_empty_desc'), ['text-secondary'], { style: 'font-size: 0.85rem;' }));
         grid.appendChild(emptyState);
     } else {
-        offers.forEach(offer => {
+        filteredOffers.forEach(offer => {
             const card = ui.createElement('div', ['summary-card'], { style: 'display: flex; flex-direction: column; min-height: 260px; position: relative; overflow: hidden;' });
 
             // Accent blob
@@ -2708,12 +2913,20 @@ function renderOffersTab(parent) {
                 card.appendChild(imgPlaceholder);
             }
 
-            // Header row: name + delete
+            // Header row: name + actions (Edit + Delete)
             const headerRow = ui.createElement('div', [], { style: 'display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.4rem;' });
             headerRow.appendChild(ui.createElementWithText('strong', offer.name || '-', [], { style: 'font-size: 1.05rem; font-weight: 700; color: var(--text-primary); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;' }));
-            const delBtn = ui.createElementWithText('button', '🗑️', ['btn', 'btn-danger', 'btn-sm'], { style: 'padding: 0.25rem 0.5rem; font-size: 0.85rem; border-radius: 4px; flex-shrink: 0;' });
+            
+            const btnGroup = ui.createElement('div', [], { style: 'display: flex; gap: 0.35rem; flex-shrink: 0;' });
+            const editBtn = ui.createElementWithText('button', '✏️', ['btn', 'btn-secondary', 'btn-sm'], { style: 'padding: 0.25rem 0.5rem; font-size: 0.85rem; border-radius: 4px;' });
+            editBtn.addEventListener('click', () => showEditRestOfferModal(offer));
+            btnGroup.appendChild(editBtn);
+
+            const delBtn = ui.createElementWithText('button', '🗑️', ['btn', 'btn-danger', 'btn-sm'], { style: 'padding: 0.25rem 0.5rem; font-size: 0.85rem; border-radius: 4px;' });
             delBtn.addEventListener('click', () => handleRestDeleteOffer(offer));
-            headerRow.appendChild(delBtn);
+            btnGroup.appendChild(delBtn);
+
+            headerRow.appendChild(btnGroup);
             card.appendChild(headerRow);
 
             // Description
@@ -2726,7 +2939,7 @@ function renderOffersTab(parent) {
                 const prodContainer = ui.createElement('div', [], { 
                     style: 'margin: 0.4rem 0; padding: 0.4rem 0.6rem; background: rgba(0, 0, 0, 0.02); border-radius: 6px; border: 1px dashed var(--border-color); max-height: 90px; overflow-y: auto;' 
                 });
-                const prodTitle = ui.createElementWithText('div', getLanguage() === 'ar' ? '📦 المنتجات المشمولة:' : '📦 Included Products:', [], { 
+                const prodTitle = ui.createElementWithText('div', isAr ? '📦 المنتجات المشمولة:' : '📦 Included Products:', [], { 
                     style: 'font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.25rem;' 
                 });
                 prodContainer.appendChild(prodTitle);
@@ -2735,7 +2948,7 @@ function renderOffersTab(parent) {
                 offer.products.forEach(p => {
                     const item = ui.createElement('div', [], { style: 'display: flex; justify-content: space-between; align-items: center; font-size: 0.72rem; color: var(--text-primary);' });
                     const qtyStr = p.quantity && p.quantity > 1 ? ` (x${p.quantity})` : '';
-                    item.appendChild(ui.createElementWithText('span', `• ${p.name || (getLanguage() === 'ar' ? 'منتج غير معروف' : 'Unknown Product')}${qtyStr}`, [], { 
+                    item.appendChild(ui.createElementWithText('span', `• ${p.name || (isAr ? 'منتج غير معروف' : 'Unknown Product')}${qtyStr}`, [], { 
                         style: 'text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 70%;' 
                     }));
                     if (p.price) {
@@ -2752,6 +2965,62 @@ function renderOffersTab(parent) {
             priceEl.appendChild(ui.createElementWithText('span', `$${(offer.price || 0).toFixed(2)}`, [], { style: 'font-size: 1.6rem; font-weight: 800; color: var(--rest-color, #e74c3c); font-family: "Outfit", sans-serif;' }));
             card.appendChild(priceEl);
 
+            // Active Toggle Switch on Card
+            const activeToggleWrap = ui.createElement('div', [], { style: 'display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; padding: 0.4rem 0.6rem; background: rgba(0, 0, 0, 0.03); border-radius: 6px; border: 1px solid var(--border-color);' });
+            activeToggleWrap.appendChild(ui.createElementWithText('span', isAr ? 'تفعيل العرض' : 'Enable Offer', [], { style: 'font-size: 0.8rem; font-weight: 600;' }));
+
+            const isOfferActive = !!offer.active;
+            const swLabel = ui.createElement('label', ['switch-container']);
+            const swInput = ui.createElement('input', ['switch-input'], { type: 'checkbox' });
+            swInput.checked = isOfferActive;
+
+            swInput.addEventListener('change', async (e) => {
+                swInput.disabled = true;
+                const newActive = swInput.checked;
+                try {
+                    const otherPhotosList = (Array.isArray(offer.otherPhotos) && offer.otherPhotos.length > 0)
+                        ? offer.otherPhotos
+                        : (offer.featuredPhoto ? [offer.featuredPhoto] : []);
+
+                    const updateBody = {
+                        id: offer.id,
+                        name: offer.name,
+                        price: parseFloat(offer.price) || 0,
+                        description: offer.description || '',
+                        featuredPhoto: offer.featuredPhoto || '',
+                        otherPhotos: otherPhotosList,
+                        active: newActive,
+                        offerType: offer.offerType ?? 1,
+                        type: offer.type ?? 0
+                    };
+                    if (offer.products && Array.isArray(offer.products)) {
+                        updateBody.productId = offer.products.map(p => ({
+                            productId: p.id || p.productId,
+                            quantity: p.quantity || 1
+                        }));
+                    }
+                    await apiFetch('/api/v1/offers', {
+                        method: 'PUT',
+                        body: JSON.stringify(updateBody)
+                    });
+                    offer.active = newActive;
+                    ui.showToast(newActive ? (isAr ? 'تم تفعيل العرض بنجاح' : 'Offer enabled') : (isAr ? 'تم إيقاف العرض بنجاح' : 'Offer disabled'), 'success');
+                    await refreshOffers();
+                    renderActiveTab();
+                } catch (err) {
+                    console.error('Failed to toggle offer active status:', err);
+                    ui.showToast((isAr ? 'خطأ في تغيير حالة العرض' : 'Error toggling offer status') + ': ' + err.message, 'error');
+                    e.target.checked = !e.target.checked;
+                } finally {
+                    swInput.disabled = false;
+                }
+            });
+
+            swLabel.appendChild(swInput);
+            swLabel.appendChild(ui.createElement('span', ['switch-slider']));
+            activeToggleWrap.appendChild(swLabel);
+            card.appendChild(activeToggleWrap);
+
             // Status badges
             const badgeRow = ui.createElement('div', [], { style: 'display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.75rem;' });
             if (offer.active) {
@@ -2762,25 +3031,22 @@ function renderOffersTab(parent) {
             if (!offer.approved) {
                 badgeRow.appendChild(ui.createElementWithText('span', t('offer_status_pending'), ['badge', 'badge-pending']));
             }
-            if (offer.offerType === 1) {
-                badgeRow.appendChild(ui.createElementWithText('span', '🛠️ ' + t('offer_badge_editable'), ['badge', 'badge-secondary']));
-            } else {
-                badgeRow.appendChild(ui.createElementWithText('span', '🔒 ' + t('offer_badge_fixed'), ['badge', 'badge-secondary'], { style: 'background-color: #7f8c8d;' }));
-            }
             card.appendChild(badgeRow);
 
-            // Stats row
-            const statsRow = ui.createElement('div', [], { style: 'display: flex; gap: 1rem; border-top: 1px solid var(--border-color); padding-top: 0.75rem; margin-top: auto; font-size: 0.75rem; color: var(--text-muted);' });
-            const makeStatEl = (icon, val, label) => {
-                const el = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; align-items: center; gap: 0.15rem;' });
-                el.appendChild(ui.createElementWithText('span', `${icon} ${val}`, [], { style: 'font-weight: 700; font-size: 0.85rem; color: var(--text-primary);' }));
-                el.appendChild(ui.createElementWithText('span', label, [], {}));
-                return el;
-            };
-            statsRow.appendChild(makeStatEl('👆', offer.numberOfClicks || 0, t('offer_clicks')));
-            statsRow.appendChild(makeStatEl('👁️', offer.numberOfWatches || 0, t('offer_watches')));
-            statsRow.appendChild(makeStatEl('📋', offer.numberOfBooking || 0, t('offer_bookings')));
-            card.appendChild(statsRow);
+            // Stats row (only rendered if returned by API)
+            if (offer.numberOfClicks !== undefined || offer.numberOfWatches !== undefined || offer.numberOfBooking !== undefined) {
+                const statsRow = ui.createElement('div', [], { style: 'display: flex; gap: 1rem; border-top: 1px solid var(--border-color); padding-top: 0.75rem; margin-top: auto; font-size: 0.75rem; color: var(--text-muted);' });
+                const makeStatEl = (icon, val, label) => {
+                    const el = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; align-items: center; gap: 0.15rem;' });
+                    el.appendChild(ui.createElementWithText('span', `${icon} ${val}`, [], { style: 'font-weight: 700; font-size: 0.85rem; color: var(--text-primary);' }));
+                    el.appendChild(ui.createElementWithText('span', label, [], {}));
+                    return el;
+                };
+                if (offer.numberOfClicks !== undefined) statsRow.appendChild(makeStatEl('👆', offer.numberOfClicks, t('offer_clicks')));
+                if (offer.numberOfWatches !== undefined) statsRow.appendChild(makeStatEl('👁️', offer.numberOfWatches, t('offer_watches')));
+                if (offer.numberOfBooking !== undefined) statsRow.appendChild(makeStatEl('📋', offer.numberOfBooking, t('offer_bookings')));
+                if (statsRow.children.length > 0) card.appendChild(statsRow);
+            }
 
             grid.appendChild(card);
         });
@@ -3207,10 +3473,12 @@ function renderProfileTab(parent) {
         const selectedCatId = catSelect.value ? parseInt(catSelect.value, 10) : null;
 
         try {
+            const currentBusy = bSwInput ? bSwInput.checked : !!(user.busy === true || user.busy === 1);
             const body = {
                 name,
                 photo: currentPhoto,
-                description: newRawDesc
+                description: newRawDesc,
+                busy: currentBusy
             };
             if (selectedCatId) body.categoryId = selectedCatId;
 
@@ -3223,6 +3491,7 @@ function renderProfileTab(parent) {
             profile.name = name;
             profile.photo = currentPhoto;
             profile.description = newRawDesc;
+            profile.busy = currentBusy;
             if (selectedCatId) profile.categoryId = selectedCatId;
             localStorage.setItem('qs_vendor_user', JSON.stringify(profile));
             updateHeaderVendorName();
@@ -3279,6 +3548,41 @@ function renderProfileTab(parent) {
     cSwLabel.appendChild(ui.createElementWithText('span', !isActivePr ? t('rest_sched_closure_on') : t('rest_sched_closure_off'), [], { style: 'font-weight: 600;' }));
     closureBox.appendChild(cSwLabel);
     schedPanel.appendChild(closureBox);
+
+    // Busy Status Toggle — uses PATCH /api/v1/users/toggle-busy/{userId}
+    const isArRest = getLanguage() === 'ar';
+    const busyBox = ui.createElement('div', [], { style: 'padding: 1rem 1.25rem; background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 8px; margin-bottom: 1.5rem;' });
+    busyBox.appendChild(ui.createElementWithText('p', isArRest ? '🔥 حالة الانشغال (مشغول)' : '🔥 Busy Status', [], { style: 'font-weight: 600; font-size: 0.9rem; color: #d97706; margin-bottom: 0.5rem;' }));
+    busyBox.appendChild(ui.createElementWithText('p', isArRest ? 'تفعيل خيار "مشغول" يُظهر للعملاء في التطبيق أن المطعم مشغول حالياً.' : 'Marking as busy informs customers in the mobile app that the restaurant is currently busy.', ['text-secondary'], { style: 'font-size: 0.8rem; margin-bottom: 1rem;' }));
+
+    const isBusyPr = !!(profileNow.busy === true || profileNow.busy === 1);
+
+    const bSwLabel = ui.createElement('label', ['switch-container']);
+    const bSwInput = ui.createElement('input', ['switch-input'], {
+        type: 'checkbox',
+        checked: isBusyPr ? 'checked' : ''
+    });
+    bSwInput.addEventListener('change', async (e) => {
+        bSwInput.disabled = true;
+        try {
+            await toggleBusyStatus();
+            const updatedUser = JSON.parse(localStorage.getItem('qs_vendor_user') || '{}');
+            const nowBusy = !!(updatedUser.busy === true || updatedUser.busy === 1);
+            bSwLabel.querySelector('span:last-child').textContent = nowBusy ? (isArRest ? 'مشغول' : 'Busy') : (isArRest ? 'غير مشغول' : 'Available');
+            ui.showToast(nowBusy ? (isArRest ? 'تم تغيير الحالة إلى مشغول' : 'Status set to Busy') : (isArRest ? 'تم إيقاف حالة الانشغال' : 'Status set to Available'), 'success');
+        } catch (err) {
+            console.error('Failed to toggle busy status:', err);
+            ui.showToast((isArRest ? 'خطأ في تغيير حالة الانشغال' : 'Error toggling busy status') + ': ' + err.message, 'error');
+            e.target.checked = !e.target.checked;
+        } finally {
+            bSwInput.disabled = false;
+        }
+    });
+    bSwLabel.appendChild(bSwInput);
+    bSwLabel.appendChild(ui.createElement('span', ['switch-slider']));
+    bSwLabel.appendChild(ui.createElementWithText('span', isBusyPr ? (isArRest ? 'مشغول' : 'Busy') : (isArRest ? 'غير مشغول' : 'Available'), [], { style: 'font-weight: 600;' }));
+    busyBox.appendChild(bSwLabel);
+    schedPanel.appendChild(busyBox);
 
     // Days + Hours fields
     const daysWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 1rem;' });
