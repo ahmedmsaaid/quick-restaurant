@@ -2930,21 +2930,6 @@ async function refreshOffers() {
     }
 }
 
-async function handleApproveOffer(offerId) {
-    const isAr = getLanguage() === 'ar';
-    try {
-        await apiFetch(`/api/v1/offers/toggle-approval/${offerId}`, {
-            method: 'POST'
-        });
-        ui.showToast(isAr ? 'تم تعديل حالة اعتماد العرض بنجاح' : 'Offer approval status toggled successfully', 'success');
-        await refreshOffers();
-        renderActiveTab();
-    } catch (e) {
-        console.error('Failed to toggle offer approval:', e);
-        ui.showToast(isAr ? 'فشل تعديل حالة اعتماد العرض' : 'Failed to toggle offer approval', 'error');
-    }
-}
-
 async function handleDeleteOffer(offer) {
     const isAr = getLanguage() === 'ar';
     const confirmMsg = isAr 
@@ -3041,29 +3026,12 @@ async function renderOffersTab(container) {
             } else {
                 badgeRow.appendChild(ui.createElementWithText('span', isAr ? 'غير نشط' : 'Inactive', ['badge', 'badge-danger']));
             }
-            if (offer.approved) {
-                badgeRow.appendChild(ui.createElementWithText('span', isAr ? 'معتمد' : 'Approved', ['badge', 'badge-success'], { style: 'background: rgba(46, 213, 115, 0.2); color: #2ed573;' }));
-            } else {
-                badgeRow.appendChild(ui.createElementWithText('span', isAr ? 'بانتظار الاعتماد' : 'Pending Approval', ['badge', 'badge-pending']));
-            }
             if (offer.offerType === 1) {
                 badgeRow.appendChild(ui.createElementWithText('span', '🛠️ ' + (isAr ? 'عرض مرن' : 'Editable'), ['badge', 'badge-secondary']));
             } else {
                 badgeRow.appendChild(ui.createElementWithText('span', '🔒 ' + (isAr ? 'عرض ثابت' : 'Fixed'), ['badge', 'badge-secondary'], { style: 'background-color: #7f8c8d;' }));
             }
             card.appendChild(badgeRow);
-
-            // Approve/Reject toggle action
-            const actionBtn = ui.createElementWithText(
-                'button', 
-                offer.approved 
-                    ? (isAr ? '🔴 إلغاء الاعتماد' : '🔴 Revoke Approval')
-                    : (isAr ? '✅ اعتماد العرض' : '✅ Approve Offer'),
-                ['btn', offer.approved ? 'btn-secondary' : 'btn-primary'],
-                { style: 'width: 100%; margin-top: auto; font-size: 0.8rem; padding: 0.4rem 0.5rem; font-weight: 600;' }
-            );
-            actionBtn.addEventListener('click', () => handleApproveOffer(offer.id));
-            card.appendChild(actionBtn);
 
             grid.appendChild(card);
         });
