@@ -2540,7 +2540,7 @@ function renderProfileTab(parent) {
 
     const photoRow = ui.createElement('div', [], { style: 'display: flex; align-items: center; gap: 1.25rem; margin-bottom: 1.25rem;' });
     let currentPhoto = user.photo || '';
-    const photoPreview = ui.createElement('div', [], { style: 'width: 80px; height: 80px; border-radius: 50%; background: linear-gradient(135deg, var(--mkt-color, #2ed573), #1e90ff); display: flex; align-items: center; justify-content: center; font-size: 2rem; flex-shrink: 0; overflow: hidden; border: 3px solid var(--border-color);' });
+    const photoPreview = ui.createElement('div', [], { style: 'width: 120px; height: 75px; border-radius: 12px; background: linear-gradient(135deg, var(--mkt-color, #2ed573), #1e90ff); display: flex; align-items: center; justify-content: center; font-size: 2rem; flex-shrink: 0; overflow: hidden; border: 2px solid var(--border-color);' });
     if (currentPhoto) {
         const img = ui.createElement('img', [], { src: getImageUrl(currentPhoto), style: 'width: 100%; height: 100%; object-fit: cover;' });
         photoPreview.appendChild(img);
@@ -2564,7 +2564,8 @@ function renderProfileTab(parent) {
     photoBtnGroup.appendChild(ui.createElementWithText('label', t('rest_profile_photo_label'), [], { style: 'font-size: 0.85rem; font-weight: 600;' }));
     photoBtnGroup.appendChild(photoBtn);
     photoBtnGroup.appendChild(photoInput);
-    const imgHint = ui.createElementWithText('span', getLanguage() === 'ar' ? 'الأبعاد الموصى بها: 400 × 400 بكسل (نسبة 1:1)' : 'Recommended dimensions: 400 × 400 px (1:1)', [], { style: 'font-size: 0.75rem; color: var(--text-muted); display: block; margin-top: 0.25rem;' });
+    const imgHintText = getLanguage() === 'ar' ? '📷 الأبعاد الموصى بها: 800 × 500 بكسل (نسبة 16:9 أفقية) لضمان وضوح الصورة كغلاف للشاشة الرئيسية وشاشة المتجر.' : '📷 Recommended dimensions: 800 × 500 px (16:9 landscape) for optimal store banner & card quality.';
+    const imgHint = ui.createElementWithText('span', imgHintText, [], { style: 'font-size: 0.75rem; color: var(--text-muted); display: block; margin-top: 0.25rem;' });
     photoBtnGroup.appendChild(imgHint);
     photoRow.appendChild(photoPreview);
     photoRow.appendChild(photoBtnGroup);
@@ -2600,7 +2601,23 @@ function renderProfileTab(parent) {
             });
             const mainCats = Array.isArray(res) ? res : (res?.result ?? []);
             const mktCats = mainCats.filter(c => c.userRole === 1 || c.userRole === 4 || c.userRole === 'Vendor' || c.userRole === undefined);
-            const displayCats = mktCats.length > 0 ? mktCats : mainCats;
+            let displayCats = mktCats.length > 0 ? mktCats : mainCats;
+
+            const isQuickCategory = (c) => {
+                if (!c || !c.name) return false;
+                const n = c.name.toString().trim().toLowerCase();
+                return n === 'quick' || n === 'كويك' || n.includes('quick') || n.includes('كويك');
+            };
+            const isQuickUser = (u) => {
+                if (!u) return false;
+                const name = (u.name || '').toString().trim().toLowerCase();
+                const email = (u.email || '').toString().trim().toLowerCase();
+                return name.includes('quick') || name.includes('كويك') || email.includes('quick');
+            };
+
+            if (!isQuickUser(user)) {
+                displayCats = displayCats.filter(c => !isQuickCategory(c));
+            }
 
             catSelect.replaceChildren();
             if (displayCats.length === 0) {

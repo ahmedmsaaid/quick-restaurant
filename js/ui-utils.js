@@ -283,6 +283,7 @@ export function closeModal() {
     const overlay = document.getElementById('modal-overlay');
     overlay.classList.add('hidden');
 }
+export const hideModal = closeModal;
 
 /**
  * Safely render a Chart.js instance on a canvas element
