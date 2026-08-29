@@ -93,7 +93,7 @@ export function printOrderReceipt(order = {}) {
                 <tr style="border-bottom: 1px dashed #ccc;">
                     <td style="padding: 4px 0; text-align: right;">${name}</td>
                     <td style="padding: 4px 0; text-align: center;">${qty}</td>
-                    <td style="padding: 4px 0; text-align: left;">$${itemTotal}</td>
+                    <td style="padding: 4px 0; text-align: left;">${itemTotal} ج.م</td>
                 </tr>
             `;
         });
@@ -114,7 +114,7 @@ export function printOrderReceipt(order = {}) {
             <div><strong>التاريخ:</strong> ${dateStr}</div>
             <div><strong>العميل:</strong> ${customerName}</div>
             ${customerPhone ? `<div><strong>الهاتف:</strong> ${customerPhone}</div>` : ''}
-            ${address ? `<div><strong>العنوان:</strong> ${address}</div>` : ''}
+            ${(order.notes || order.note) ? `<div><strong>ملاحظات العميل:</strong> ${order.notes || order.note}</div>` : ''}
             <div style="border-top: 1px dashed #000; margin: 6px 0;"></div>
             <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
                 <thead>
@@ -131,16 +131,16 @@ export function printOrderReceipt(order = {}) {
             <div style="border-top: 1px dashed #000; margin: 6px 0;"></div>
             <div style="display: flex; justify-content: space-between; font-weight: 700;">
                 <span>المجموع الفرعي:</span>
-                <span>$${parseFloat(subtotal).toFixed(2)}</span>
+                <span>${parseFloat(subtotal).toFixed(2)} ج.م</span>
             </div>
             <div style="display: flex; justify-content: space-between; font-weight: 700;">
                 <span>التوصيل:</span>
-                <span>$${parseFloat(deliveryFee).toFixed(2)}</span>
+                <span>${parseFloat(deliveryFee).toFixed(2)} ج.م</span>
             </div>
             <div style="border-top: 1px solid #000; margin: 4px 0;"></div>
             <div style="display: flex; justify-content: space-between; font-weight: 800; font-size: 13px;">
                 <span>الإجمالي الكلي:</span>
-                <span>$${parseFloat(total).toFixed(2)}</span>
+                <span>${parseFloat(total).toFixed(2)} ج.م</span>
             </div>
             <div style="margin-top: 4px;"><strong>طريقة الدفع:</strong> ${paymentMethod}</div>
             <div style="border-top: 1px dashed #000; margin: 8px 0 4px 0;"></div>

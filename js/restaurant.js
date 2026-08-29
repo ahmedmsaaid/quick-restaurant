@@ -516,7 +516,7 @@ async function refreshOrders() {
                     status: mapBackendStatusToLocal(ord.status),
                     items: items,
                     totalPrice: ord.totalPrice - (ord.deliveryFee || 0) - (ord.orderFee || 0),
-                    notes: ord.address || '',
+                    notes: ord.note || ord.notes || '',
                     customerName: ord.user ? ord.user.name : (getLanguage() === 'ar' ? 'عميل' : 'Customer'),
                     customerPhone: ord.user ? ord.user.phone : '',
                     prepTime: 20,
@@ -1169,9 +1169,16 @@ function renderQueueTab(parent) {
         
         // Header
         const header = ui.createElement('div', [], { style: 'display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem; margin-bottom: 0.75rem;' });
-        const orderText = getLanguage() === 'ar' ? `طلب رقم ${ord.id}` : `Order ${ord.id}`;
+        const orderText = getLanguage() === 'ar' ? `طلب رقم #${ord.id}` : `Order #${ord.id}`;
         header.appendChild(ui.createElementWithText('strong', orderText, [], { style: 'font-size: 1.15rem;' }));
-        header.appendChild(ui.createElementWithText('span', t('rest_queue_order_mode'), ['badge', 'badge-info']));
+
+        const payText = (ord.rawOrder && ord.rawOrder.paymentMethod === 1) || ord.paymentMethod === 1
+            ? (getLanguage() === 'ar' ? '💳 دفع إلكتروني' : '💳 Online')
+            : (getLanguage() === 'ar' ? '💵 كاش عند الاستلام' : '💵 Cash');
+        const headerBadges = ui.createElement('div', [], { style: 'display: flex; gap: 0.5rem; align-items: center;' });
+        headerBadges.appendChild(ui.createElementWithText('span', payText, ['badge', 'badge-warning'], { style: 'font-size: 0.85rem;' }));
+        headerBadges.appendChild(ui.createElementWithText('span', t('rest_queue_order_mode'), ['badge', 'badge-info']));
+        header.appendChild(headerBadges);
         card.appendChild(header);
         
         // Items list
@@ -1201,7 +1208,7 @@ function renderQueueTab(parent) {
         // Total
         const totalLine = ui.createElement('div', [], { style: 'font-size: 1rem; font-weight: 700; margin-bottom: 1rem; border-top: 1px dashed var(--border-color); padding-top: 0.75rem;' });
         totalLine.appendChild(ui.createElementWithText('span', t('rest_queue_order_total'), ['text-secondary'], { style: 'font-weight: normal;' }));
-        totalLine.appendChild(ui.createElementWithText('strong', `$${ord.totalPrice.toFixed(2)}`));
+        totalLine.appendChild(ui.createElementWithText('strong', `${ord.totalPrice.toFixed(2)} ج.م`));
         card.appendChild(totalLine);
         
         // Action Buttons
@@ -1405,10 +1412,6 @@ function showOrderDetailModal(order) {
     customerInfo.appendChild(ui.createElementWithText('div', t('rest_progress_modal_cust_name', { name: order.customerName })));
     customerInfo.appendChild(ui.createElementWithText('div', t('rest_progress_modal_cust_phone', { phone: ui.maskPII(order.customerPhone, 'phone') })));
     customerBlock.appendChild(customerInfo);
-
-    const chatCustBtn = ui.createElementWithText('button', getLanguage() === 'ar' ? '💬 دردشة' : '💬 Chat', ['btn', 'btn-primary', 'btn-sm']);
-    chatCustBtn.addEventListener('click', () => openDashboardChat(order.customerId || order.userId, order.customerName));
-    customerBlock.appendChild(chatCustBtn);
     modalBody.appendChild(customerBlock);
     
     if (order.captainName) {
@@ -1419,10 +1422,6 @@ function showOrderDetailModal(order) {
         const distText = getLanguage() === 'ar' ? 'المسافة إلى المطبخ: ~1.2 كم' : 'Distance to kitchen: ~1.2 km away';
         driverInfo.appendChild(ui.createElementWithText('div', distText));
         driverBlock.appendChild(driverInfo);
-
-        const chatDriverBtn = ui.createElementWithText('button', getLanguage() === 'ar' ? '💬 دردشة' : '💬 Chat', ['btn', 'btn-primary', 'btn-sm']);
-        chatDriverBtn.addEventListener('click', () => openDashboardChat(order.captainId || order.updatorId, order.captainName));
-        driverBlock.appendChild(chatDriverBtn);
         modalBody.appendChild(driverBlock);
     }
     

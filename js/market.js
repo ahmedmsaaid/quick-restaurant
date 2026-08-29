@@ -331,7 +331,7 @@ async function refreshOrders() {
                     status: mapBackendStatusToLocal(ord.status),
                     items,
                     totalPrice: ord.totalPrice - (ord.deliveryFee || 0) - (ord.orderFee || 0),
-                    notes: ord.address || '',
+                    notes: ord.note || ord.notes || '',
                     customerName: ord.user ? ord.user.name : (getLanguage() === 'ar' ? 'عميل' : 'Customer'),
                     customerPhone: ord.user ? ord.user.phone : '',
                     createdAt: ord.createdAt,
@@ -1578,7 +1578,7 @@ function buildOrderCard(container, ord, readonly = false) {
 
     card.appendChild(ui.createElementWithText('div', `👤 ${ord.customerName}`, [], { style: 'font-size: 0.85rem; margin-bottom: 0.25rem;' }));
     card.appendChild(ui.createElementWithText('div', `📦 ${ord.items.length} ${getLanguage() === 'ar' ? 'صنف' : 'items'}`, [], { style: 'font-size: 0.85rem; margin-bottom: 0.25rem;' }));
-    card.appendChild(ui.createElementWithText('div', `💵 $${(parseFloat(ord.totalPrice) || 0).toFixed(2)}`, [], { style: 'font-weight: 800; color: var(--color-success); font-size: 1.1rem; margin-bottom: 0.75rem;' }));
+    card.appendChild(ui.createElementWithText('div', `💵 ${(parseFloat(ord.totalPrice) || 0).toFixed(2)} ج.م`, [], { style: 'font-weight: 800; color: var(--color-success); font-size: 1.1rem; margin-bottom: 0.75rem;' }));
 
     const previewText = ord.items.map(it => `${it.qty}x ${it.name}`).join(', ');
     card.appendChild(ui.createElementWithText('p', previewText.length > 60 ? previewText.slice(0, 57) + '...' : previewText, ['text-muted'], { style: 'font-size: 0.78rem; margin-bottom: 1rem;' }));
@@ -1609,15 +1609,6 @@ function buildOrderCard(container, ord, readonly = false) {
         }
 
         card.appendChild(btnRow);
-
-        // Add chat button if active order
-        if (ord.status !== 'declined') {
-            const chatBtn = ui.createElementWithText('button', getLanguage() === 'ar' ? '💬 دردشة' : '💬 Chat', ['btn', 'btn-secondary', 'btn-sm'], { style: 'margin-top: 0.5rem; width: 100%; display: flex; justify-content: center; align-items: center;' });
-            chatBtn.addEventListener('click', () => {
-                showMarketChatSelection(ord);
-            });
-            card.appendChild(chatBtn);
-        }
     }
 
     container.appendChild(card);
