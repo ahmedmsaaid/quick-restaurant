@@ -4,7 +4,7 @@
  * menu customizer modifiers, and emergency closure overlays.
  */
 
-import * as ui from './ui-utils.js';
+import * as ui from './ui-utils.js?v=29.0';
 import { t, getLanguage, setLanguage, initTranslations, subscribeLangChange } from './translations.js';
 import { ApiClient, ImageService, Logger } from './core.js';
 import { initFCMNotificationService } from './fcm-helper.js';
@@ -504,21 +504,26 @@ async function refreshOrders() {
                     const menuItem = restaurantMenu.find(m => m.id === p.productId.toString());
                     const mods = menuItem ? menuItem.modifiers.map(m => m.name) : [];
                     return {
-                        name: p.productName || 'Dish',
+                        name: p.productName || (menuItem ? menuItem.name : 'Dish'),
                         qty: p.quantity,
                         price: p.price,
+                        image: (menuItem && (menuItem.image || menuItem.photo)) ? (menuItem.image || menuItem.photo) : (p.photo || p.image || ''),
                         modifiers: mods
                     };
                 });
                 return {
                     id: ord.id.toString(),
-                    vendorId: myRestaurantId.toString(),
+                    vendorId: myRestaurantId ? myRestaurantId.toString() : '',
                     status: mapBackendStatusToLocal(ord.status),
                     items: items,
                     totalPrice: ord.totalPrice - (ord.deliveryFee || 0) - (ord.orderFee || 0),
+                    deliveryFee: ord.deliveryFee || 0,
+                    finalTotal: ord.totalPrice,
+                    paymentMethod: ord.paymentMethod || (ord.rawOrder && ord.rawOrder.paymentMethod) || 0,
                     notes: ord.note || ord.notes || '',
                     customerName: ord.user ? ord.user.name : (getLanguage() === 'ar' ? 'عميل' : 'Customer'),
                     customerPhone: ord.user ? ord.user.phone : '',
+                    createdAt: ord.createdAt,
                     prepTime: 20,
                     captainName: '',
                     rawOrder: ord
@@ -1164,58 +1169,10 @@ function renderQueueTab(parent) {
         return;
     }
     
-    incomingOrders.forEach(ord => {
-        const card = ui.createElement('div', ['glass-panel'], { style: 'margin-bottom: 1rem;' });
-        
-        // Header
-        const header = ui.createElement('div', [], { style: 'display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem; margin-bottom: 0.75rem;' });
-        const orderText = getLanguage() === 'ar' ? `طلب رقم #${ord.id}` : `Order #${ord.id}`;
-        header.appendChild(ui.createElementWithText('strong', orderText, [], { style: 'font-size: 1.15rem;' }));
+    const grid = ui.createElement('div', ['analytics-grid', 'qs-orders-grid'], { style: 'margin-bottom: 2rem;' });
 
-        const payText = (ord.rawOrder && ord.rawOrder.paymentMethod === 1) || ord.paymentMethod === 1
-            ? (getLanguage() === 'ar' ? '💳 دفع إلكتروني' : '💳 Online')
-            : (getLanguage() === 'ar' ? '💵 كاش عند الاستلام' : '💵 Cash');
-        const headerBadges = ui.createElement('div', [], { style: 'display: flex; gap: 0.5rem; align-items: center;' });
-        headerBadges.appendChild(ui.createElementWithText('span', payText, ['badge', 'badge-warning'], { style: 'font-size: 0.85rem;' }));
-        headerBadges.appendChild(ui.createElementWithText('span', t('rest_queue_order_mode'), ['badge', 'badge-info']));
-        header.appendChild(headerBadges);
-        card.appendChild(header);
-        
-        // Items list
-        const itemsList = ui.createElement('ul', [], { style: 'list-style: none; margin-bottom: 1rem;' });
-        ord.items.forEach(it => {
-            const li = ui.createElement('li', [], { style: 'padding: 0.25rem 0; font-size: 0.95rem;' });
-            li.appendChild(ui.createElementWithText('span', `${it.qty}x `, [], { style: 'font-weight: bold; color: var(--rest-color);' }));
-            li.appendChild(document.createTextNode(it.name));
-            
-            if (it.modifiers && it.modifiers.length > 0) {
-                const labelMod = getLanguage() === 'ar' ? ' + الإضافات: ' : ' + Modifiers: ';
-                const mods = ui.createElementWithText('div', labelMod + it.modifiers.join(', '), ['text-secondary'], { style: 'font-size: 0.8rem; margin-left: 1.5rem;' });
-                li.appendChild(mods);
-            }
-            itemsList.appendChild(li);
-        });
-        card.appendChild(itemsList);
-        
-        // Notes
-        if (ord.notes) {
-            const noteBox = ui.createElement('div', [], { style: 'background: rgba(255,165,0,0.05); border-left: 3px solid var(--color-pending); padding: 0.5rem; margin-bottom: 1rem; font-size: 0.85rem;' });
-            noteBox.appendChild(ui.createElementWithText('strong', t('rest_queue_order_notes')));
-            noteBox.appendChild(document.createTextNode(ord.notes));
-            card.appendChild(noteBox);
-        }
-        
-        // Total
-        const totalLine = ui.createElement('div', [], { style: 'font-size: 1rem; font-weight: 700; margin-bottom: 1rem; border-top: 1px dashed var(--border-color); padding-top: 0.75rem;' });
-        totalLine.appendChild(ui.createElementWithText('span', t('rest_queue_order_total'), ['text-secondary'], { style: 'font-weight: normal;' }));
-        totalLine.appendChild(ui.createElementWithText('strong', `${ord.totalPrice.toFixed(2)} ج.م`));
-        card.appendChild(totalLine);
-        
-        // Action Buttons
-        const actionRow = ui.createElement('div', [], { style: 'display: flex; gap: 0.75rem;' });
-        
-        const acceptBtn = ui.createElementWithText('button', t('rest_queue_btn_accept'), ['btn', 'btn-success']);
-        acceptBtn.addEventListener('click', async () => {
+    incomingOrders.forEach(ord => {
+        const onAccept = async () => {
             ui.stopAlarmSound();
             const prepTime = 20;
             const paymentMethod = ord.rawOrder ? ord.rawOrder.paymentMethod : 0;
@@ -1224,16 +1181,19 @@ function renderQueueTab(parent) {
             await updateStatus(ord.id, acceptStatus, { prepTime });
             ui.showToast(getLanguage() === 'ar' ? 'تم قبول الطلب بنجاح!' : 'Order accepted successfully!', 'success');
             
-            // Switch directly to Kitchen Kanban / Active Orders tab
             const targetTabBtn = document.getElementById('rest-menu-kanban') || document.getElementById('rest-menu-queue');
             if (targetTabBtn) targetTabBtn.click();
+        };
+
+        const cardView = ui.renderDashboardOrderCard(ord, {
+            acceptText: '✔ تأكيد القبول',
+            onAccept
         });
-        
-        actionRow.appendChild(acceptBtn);
-        card.appendChild(actionRow);
-        
-        parent.appendChild(card);
+
+        grid.appendChild(cardView);
     });
+
+    parent.appendChild(grid);
 }
 
 function showAcceptTimeModal(order) {
@@ -1397,49 +1357,7 @@ function renderProgressTab(parent) {
 }
 
 function showOrderDetailModal(order) {
-    const modalBody = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.75rem;' });
-    let statusText = order.status;
-    if (order.status === 'preparing') statusText = t('rest_progress_col_preparing');
-    else if (order.status === 'ready_for_pickup') statusText = t('rest_progress_col_ready');
-    else if (order.status === 'on_the_way') statusText = t('rest_progress_col_way');
-    else if (order.status === 'completed') statusText = t('rest_progress_col_completed');
-    
-    modalBody.appendChild(ui.createElementWithText('h4', t('rest_progress_modal_status', { status: statusText }), [], { style: 'color: var(--color-info);' }));
-    
-    const customerBlock = ui.createElement('div', [], { style: 'border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center;' });
-    const customerInfo = ui.createElement('div');
-    customerInfo.appendChild(ui.createElementWithText('strong', t('rest_progress_modal_cust_title')));
-    customerInfo.appendChild(ui.createElementWithText('div', t('rest_progress_modal_cust_name', { name: order.customerName })));
-    customerInfo.appendChild(ui.createElementWithText('div', t('rest_progress_modal_cust_phone', { phone: ui.maskPII(order.customerPhone, 'phone') })));
-    customerBlock.appendChild(customerInfo);
-    modalBody.appendChild(customerBlock);
-    
-    if (order.captainName) {
-        const driverBlock = ui.createElement('div', [], { style: 'border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center;' });
-        const driverInfo = ui.createElement('div');
-        driverInfo.appendChild(ui.createElementWithText('strong', t('rest_progress_modal_driver_title')));
-        driverInfo.appendChild(ui.createElementWithText('div', t('rest_progress_modal_driver_name', { name: order.captainName })));
-        const distText = getLanguage() === 'ar' ? 'المسافة إلى المطبخ: ~1.2 كم' : 'Distance to kitchen: ~1.2 km away';
-        driverInfo.appendChild(ui.createElementWithText('div', distText));
-        driverBlock.appendChild(driverInfo);
-        modalBody.appendChild(driverBlock);
-    }
-    
-    const itemsBlock = ui.createElement('div');
-    itemsBlock.appendChild(ui.createElementWithText('strong', t('rest_progress_modal_items_title')));
-    order.items.forEach(i => {
-        itemsBlock.appendChild(ui.createElementWithText('div', `• ${i.qty}x ${i.name} ($${(i.qty * i.price).toFixed(2)})`));
-    });
-    modalBody.appendChild(itemsBlock);
-
-    const printBtn = ui.createElementWithText('button', getLanguage() === 'ar' ? '🖨️ طباعة الفاتورة' : '🖨️ Print Receipt', ['btn', 'btn-primary'], {
-        style: 'margin-top: 1rem; width: 100%; font-weight: 700;'
-    });
-    printBtn.addEventListener('click', () => ui.printOrderReceipt(order));
-    modalBody.appendChild(printBtn);
-    
-    const labelHeader = getLanguage() === 'ar' ? `تفاصيل طلب ${order.id}` : `Order ${order.id} Breakdown`;
-    ui.showModal(labelHeader, modalBody);
+    ui.showOrderDetailsModal(order);
 }
 
 /* ==========================================================================

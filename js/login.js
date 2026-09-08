@@ -340,6 +340,11 @@ export class LoginController {
             // Handle HTTP 330 specifically if it failed under fetch error throw
             if (err.message.includes('330') || (window._lastHttpStatus === 330)) {
                 this.transitionToOtpFlow(identifier);
+            } else if (err.name === 'TypeError' || (err.message && err.message.toLowerCase().includes('failed to fetch'))) {
+                const networkMsg = getLanguage() === 'ar'
+                    ? 'تعذر الاتصال بالسيرفر. يرجى التأكد من تشغيل السيرفر أو اتصال الإنترنت (Failed to fetch).'
+                    : 'Unable to connect to server. Please verify backend server status or network connection (Failed to fetch).';
+                this.showAlert(networkMsg, 'error');
             } else {
                 this.showAlert(t('error_invalid_credentials'), 'error', 'error_invalid_credentials');
             }

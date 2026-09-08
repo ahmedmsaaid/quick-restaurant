@@ -3,7 +3,7 @@
  * Follows strict secure coding rules to avoid innerHTML assignments and PII exposure.
  */
 
-import { t } from './translations.js';
+import { t, getLanguage } from './translations.js';
 
 // Global state for Audio Synthesizer Alert
 let audioCtx = null;
@@ -176,25 +176,47 @@ export function showFullScreenOrderAlert(orderCode = '', onAcknowledgeCallback =
 
     overlay.innerHTML = `
         <div class="full-order-content">
-            <img src="assets/images/home_logo.png" alt="Quick Service Logo" class="full-order-logo">
-            <div class="full-order-bell">🔔</div>
-            <h1 class="full-order-title">${titleText}</h1>
+            <button type="button" class="full-order-close-btn" id="btn-close-full-order" aria-label="Close">&times;</button>
+            <div class="full-order-icon-wrap">
+                <span class="full-order-bell">🔔</span>
+            </div>
+            <h2 class="full-order-title">${titleText}</h2>
             <p class="full-order-subtitle">${subTitleText}</p>
             <div class="full-order-badge" id="full-order-code">${badgeText}</div>
-            <button id="btn-ack-full-order" class="full-order-btn">${btnText}</button>
+            <button type="button" id="btn-ack-full-order" class="full-order-btn">${btnText}</button>
         </div>
     `;
 
+    const closeAlert = () => {
+        stopAlarmSound();
+        overlay.classList.add('hidden');
+    };
+
     const ackBtn = overlay.querySelector('#btn-ack-full-order');
     if (ackBtn) {
-        ackBtn.onclick = () => {
-            stopAlarmSound(); // Silence the alarm sound loop!
-            overlay.classList.add('hidden');
+        ackBtn.onclick = (e) => {
+            e.stopPropagation();
+            closeAlert();
             if (typeof onAcknowledgeCallback === 'function') {
                 onAcknowledgeCallback();
             }
         };
     }
+
+    const closeBtn = overlay.querySelector('#btn-close-full-order');
+    if (closeBtn) {
+        closeBtn.onclick = (e) => {
+            e.stopPropagation();
+            closeAlert();
+        };
+    }
+
+    // Dismiss when clicking outside the card on the backdrop
+    overlay.onclick = (e) => {
+        if (e.target === overlay) {
+            closeAlert();
+        }
+    };
 
     overlay.classList.remove('hidden');
 }
@@ -281,7 +303,10 @@ export function showModal(title, bodyNode, buttons = []) {
  */
 export function closeModal() {
     const overlay = document.getElementById('modal-overlay');
-    overlay.classList.add('hidden');
+    if (overlay) {
+        overlay.classList.add('hidden');
+        overlay.style.display = 'none';
+    }
 }
 export const hideModal = closeModal;
 
@@ -856,5 +881,332 @@ if (typeof document !== 'undefined') {
         initMobileBottomNav();
     }
 }
+
+/**
+ * Unified Mobile-Style Order Details Layout (Matching user reference)
+ * @param {Object} order - Order DTO object
+ * @param {Object} options - { showHeader, onBack, onAccept, acceptText, readonly }
+ * @returns {HTMLElement} - Container DOM node
+ */
+export function renderOrderView(order, options = {}) {
+    const container = createElement('div', ['qs-order-view']);
+
+    // 1. Optional Top Header (e.g. inside modal or full page view)
+    if (options.showHeader) {
+        const header = createElement('div', ['qs-order-view-header']);
+        if (options.onBack) {
+            const backBtn = createElementWithText('button', '❮', ['qs-order-view-header-back']);
+            backBtn.type = 'button';
+            backBtn.addEventListener('click', options.onBack);
+            header.appendChild(backBtn);
+        } else {
+            header.appendChild(createElement('div', [], { style: 'width: 24px;' }));
+        }
+        header.appendChild(createElementWithText('div', 'تفاصيل الطلب', ['qs-order-view-header-title']));
+        header.appendChild(createElement('div', [], { style: 'width: 24px;' }));
+        container.appendChild(header);
+    }
+
+    // 2. Card 1: Order ID, Badge, Time, Customer & Phone (NO ADDRESS per user request)
+    const card1 = createElement('div', ['qs-order-card']);
+    
+    // Top Row
+    const topRow = createElement('div', ['qs-order-top-row']);
+    
+    // Title & Time Group
+    const titleGroup = createElement('div', ['qs-order-title-group']);
+    titleGroup.appendChild(createElementWithText('h3', `طلب #${order.id}`, ['qs-order-number']));
+    
+    let timeText = 'وصل منذ لحظات 🕒';
+    if (order.createdAt) {
+        try {
+            const diffMs = Date.now() - new Date(order.createdAt).getTime();
+            const mins = Math.floor(diffMs / 60000);
+            if (mins > 1 && mins < 60) {
+                timeText = `منذ ${mins} دقيقة 🕒`;
+            } else if (mins >= 60 && mins < 1440) {
+                timeText = `منذ ${Math.floor(mins / 60)} ساعة 🕒`;
+            }
+        } catch (_) {}
+    }
+    titleGroup.appendChild(createElementWithText('div', timeText, ['qs-order-time']));
+    topRow.appendChild(titleGroup);
+
+    // Status Badge
+    let badgeLabel = 'جديد';
+    if (order.status === 'confirmed') badgeLabel = 'مؤكد';
+    else if (order.status === 'preparing') badgeLabel = 'قيد التجهيز';
+    else if (order.status === 'ready_for_pickup') badgeLabel = 'جاهز';
+    else if (order.status === 'waiting_for_driver') badgeLabel = 'بانتظار سائق';
+    else if (order.status === 'completed') badgeLabel = 'مكتمل';
+    else if (order.status === 'on_the_way') badgeLabel = 'في الطريق';
+
+    topRow.appendChild(createElementWithText('span', badgeLabel, ['qs-order-badge']));
+    card1.appendChild(topRow);
+
+    // Divider
+    card1.appendChild(createElement('div', [], { style: 'height: 1px; background: rgba(0,0,0,0.06); margin: 6px 0 10px 0;' }));
+
+    // Customer Name Row
+    const custName = order.customerName || (order.user ? order.user.name : '') || 'Quick Market';
+    const nameRow = createElement('div', ['qs-order-contact-row']);
+    nameRow.appendChild(createElementWithText('span', `${custName} 👤`, []));
+    card1.appendChild(nameRow);
+
+    // Customer Phone Row
+    const phoneVal = order.customerPhone || (order.user ? order.user.phone : '') || '0100 123 4567';
+    const phoneRow = createElement('div', ['qs-order-contact-row', 'qs-order-contact-phone']);
+    phoneRow.appendChild(createElementWithText('span', `${phoneVal} 📞`, []));
+    card1.appendChild(phoneRow);
+
+    // NOTE: Address is completely omitted per user instructions ("بس من غير العنوان")
+    container.appendChild(card1);
+
+    // 3. Card 2: Items List & Financial Summary
+    const card2 = createElement('div', ['qs-order-card']);
+    const items = Array.isArray(order.items) ? order.items : [];
+    card2.appendChild(createElementWithText('div', `الأصناف (${items.length})`, ['qs-order-section-title']));
+
+    let subtotal = 0;
+    items.forEach(it => {
+        const qty = parseInt(it.qty || it.quantity || 1);
+        const price = parseFloat(it.price || 0);
+        subtotal += qty * price;
+
+        const itemBox = createElement('div', ['qs-order-item-box']);
+        
+        // Item Details (Name + Qty + Price)
+        const info = createElement('div', ['qs-order-item-info']);
+        info.appendChild(createElementWithText('div', it.name || 'صنف', ['qs-order-item-name']));
+        info.appendChild(createElementWithText('div', `${qty}x`, ['qs-order-item-qty']));
+        info.appendChild(createElementWithText('div', `${(qty * price).toFixed(2)} ج.م`, ['qs-order-item-price']));
+        itemBox.appendChild(info);
+
+        // Item Image Wrap
+        const imgWrap = createElement('div', ['qs-order-item-img-wrap']);
+        if (it.image || it.photo) {
+            const img = createElement('img', ['qs-order-item-img'], {
+                src: getImageUrl(it.image || it.photo),
+                alt: it.name || 'Item'
+            });
+            img.onerror = () => { imgWrap.textContent = '📦'; };
+            imgWrap.appendChild(img);
+        } else {
+            imgWrap.textContent = '📦';
+        }
+        itemBox.appendChild(imgWrap);
+
+        card2.appendChild(itemBox);
+    });
+
+    if (items.length === 0) {
+        subtotal = parseFloat(order.totalPrice || 0);
+    }
+
+    const deliveryFee = parseFloat(order.deliveryFee || (order.rawOrder && order.rawOrder.deliveryFee) || 0);
+    const grandTotal = subtotal + deliveryFee;
+
+    const subtotalRow = createElement('div', ['qs-order-summary-row']);
+    subtotalRow.appendChild(createElementWithText('span', 'الإجمالي الفرعي'));
+    subtotalRow.appendChild(createElementWithText('span', `${subtotal.toFixed(2)} ج.م`));
+    card2.appendChild(subtotalRow);
+
+    const deliveryRow = createElement('div', ['qs-order-summary-row']);
+    deliveryRow.appendChild(createElementWithText('span', 'رسوم التوصيل'));
+    deliveryRow.appendChild(createElementWithText('span', `${deliveryFee.toFixed(2)} ج.م`));
+    card2.appendChild(deliveryRow);
+
+    const totalRow = createElement('div', ['qs-order-summary-total']);
+    totalRow.appendChild(createElementWithText('span', 'الإجمالي الكلي'));
+    totalRow.appendChild(createElementWithText('span', `${grandTotal.toFixed(2)} ج.م`));
+    card2.appendChild(totalRow);
+
+    container.appendChild(card2);
+
+    // 4. Card 3: Payment Method
+    const card3 = createElement('div', ['qs-order-card']);
+    const isOnline = (order.rawOrder && order.rawOrder.paymentMethod === 1) || order.paymentMethod === 1;
+    const payText = isOnline ? 'دفع إلكتروني' : 'كاش عند الاستلام';
+    
+    const payRow = createElement('div', ['qs-order-card-row']);
+    payRow.appendChild(createElementWithText('span', payText, ['qs-order-card-value']));
+    payRow.appendChild(createElementWithText('span', '💳 وسيلة الدفع', ['qs-order-card-label']));
+    card3.appendChild(payRow);
+    container.appendChild(card3);
+
+    // 5. Card 4: Customer Notes
+    const card4 = createElement('div', ['qs-order-card']);
+    card4.appendChild(createElementWithText('div', 'ملاحظات العميل', ['qs-order-section-title', 'qs-order-card-label']));
+    const notesText = order.notes && order.notes.trim() ? order.notes.trim() : 'لا توجد ملاحظات';
+    card4.appendChild(createElementWithText('div', notesText, ['qs-order-notes-content']));
+    container.appendChild(card4);
+
+    // 6. Action Button: ONLY Accept button (NO reject button per "ومن غير رفض الطلب")
+    if (!options.readonly && options.onAccept) {
+        const acceptBtn = createElementWithText('button', options.acceptText || '✔ تأكيد القبول', ['qs-order-accept-btn']);
+        acceptBtn.type = 'button';
+        acceptBtn.addEventListener('click', options.onAccept);
+        container.appendChild(acceptBtn);
+    }
+
+    return container;
+}
+
+/**
+ * Modern Compact Dashboard Order Card for Queue Grid (4 per row desktop, 2 per row mobile)
+ * @param {Object} order - Order DTO object
+ * @param {Object} options - { onAccept, acceptText, readonly }
+ * @returns {HTMLElement} - Card DOM element
+ */
+export function renderDashboardOrderCard(order, options = {}) {
+    const isAr = (typeof getLanguage === 'function' ? getLanguage() : (localStorage.getItem('portal_lang') || 'ar')) === 'ar';
+    const card = createElement('div', ['qs-dash-order-card']);
+
+    // 1. Header
+    const header = createElement('div', ['qs-dash-order-header']);
+    
+    // Top Row: Order # + Status Badge
+    const headerTop = createElement('div', ['qs-dash-order-header-top']);
+    headerTop.appendChild(createElementWithText('span', `${isAr ? 'طلب #' : 'Order #'}${order.id}`, ['qs-dash-order-number']));
+    
+    let badgeLabel = isAr ? 'جديد' : 'New';
+    if (order.status === 'confirmed') badgeLabel = isAr ? 'مؤكد' : 'Confirmed';
+    else if (order.status === 'preparing') badgeLabel = isAr ? 'قيد التجهيز' : 'Preparing';
+    else if (order.status === 'ready_for_pickup') badgeLabel = isAr ? 'جاهز' : 'Ready';
+    else if (order.status === 'waiting_for_driver') badgeLabel = isAr ? 'بانتظار سائق' : 'Awaiting Driver';
+    else if (order.status === 'completed') badgeLabel = isAr ? 'مكتمل' : 'Completed';
+    else if (order.status === 'on_the_way') badgeLabel = isAr ? 'في الطريق' : 'On the way';
+    headerTop.appendChild(createElementWithText('span', badgeLabel, ['qs-dash-order-badge-compact', 'qs-dash-order-badge-new']));
+    header.appendChild(headerTop);
+
+    // Sub Row: Time + Payment Badge
+    const headerSub = createElement('div', ['qs-dash-order-header-sub']);
+    let timeText = isAr ? 'منذ قليل 🕒' : 'Just now 🕒';
+    if (order.createdAt) {
+        try {
+            const diffMs = Date.now() - new Date(order.createdAt).getTime();
+            const mins = Math.floor(diffMs / 60000);
+            if (mins >= 1 && mins < 60) {
+                timeText = isAr ? `منذ ${mins} د 🕒` : `${mins}m ago 🕒`;
+            } else if (mins >= 60 && mins < 1440) {
+                timeText = isAr ? `منذ ${Math.floor(mins / 60)} س 🕒` : `${Math.floor(mins / 60)}h ago 🕒`;
+            }
+        } catch (_) {}
+    }
+    headerSub.appendChild(createElementWithText('span', timeText, ['qs-dash-order-time-compact']));
+
+    const isOnline = (order.rawOrder && order.rawOrder.paymentMethod === 1) || order.paymentMethod === 1;
+    const payText = isOnline ? (isAr ? '💳 أونلاين' : '💳 Online') : (isAr ? '💵 كاش' : '💵 Cash');
+    headerSub.appendChild(createElementWithText('span', payText, ['qs-dash-order-badge-pay', isOnline ? 'badge-info' : 'badge-warning']));
+    header.appendChild(headerSub);
+    card.appendChild(header);
+
+    // 2. Body
+    const body = createElement('div', ['qs-dash-order-body']);
+    
+    // Customer Name (NO ADDRESS per instructions)
+    const custName = order.customerName || (order.user ? order.user.name : '') || (isAr ? 'عميل' : 'Customer');
+    const custRow = createElement('div', ['qs-dash-order-customer-compact']);
+    custRow.appendChild(createElementWithText('span', `👤 ${custName}`));
+    body.appendChild(custRow);
+
+    // Items preview
+    const items = Array.isArray(order.items) ? order.items : [];
+    const itemsSummary = items.map(it => `${it.qty || 1}x ${it.name}`).join('، ') || (isAr ? 'لا توجد أصناف' : 'No items');
+    const itemsRow = createElement('div', ['qs-dash-order-items-compact']);
+    itemsRow.appendChild(createElementWithText('span', `📦 ${items.length} ${isAr ? 'أصناف' : 'items'}: ${itemsSummary}`));
+    body.appendChild(itemsRow);
+
+    // Price row
+    const deliveryFee = parseFloat(order.deliveryFee || (order.rawOrder && order.rawOrder.deliveryFee) || 0);
+    const subtotal = items.reduce((acc, it) => acc + (parseFloat(it.price || 0) * parseInt(it.qty || 1)), 0);
+    const finalTotal = parseFloat(order.finalTotal || order.totalPrice || (subtotal + deliveryFee) || 0);
+    
+    const priceRow = createElement('div', ['qs-dash-order-price-compact']);
+    priceRow.appendChild(createElementWithText('span', isAr ? 'الإجمالي:' : 'Total:', ['text-secondary'], { style: 'font-size: 0.78rem;' }));
+    priceRow.appendChild(createElementWithText('strong', `${finalTotal.toFixed(2)} ج.م`));
+    body.appendChild(priceRow);
+    card.appendChild(body);
+
+    // 3. Actions row: compact buttons
+    const actionsRow = createElement('div', ['qs-dash-order-actions-compact']);
+    
+    const detailsBtn = createElementWithText('button', isAr ? '👁️ التفاصيل' : '👁️ Details', ['qs-dash-btn-details-compact']);
+    detailsBtn.type = 'button';
+    detailsBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        showOrderDetailsModal(order, options.onAccept);
+    });
+    actionsRow.appendChild(detailsBtn);
+
+    if (!options.readonly && options.onAccept) {
+        const acceptBtn = createElementWithText('button', options.acceptText || (isAr ? '✔ قبول' : '✔ Accept'), ['qs-dash-btn-accept-compact']);
+        acceptBtn.type = 'button';
+        acceptBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            options.onAccept();
+        });
+        actionsRow.appendChild(acceptBtn);
+    }
+    card.appendChild(actionsRow);
+
+    // Clicking anywhere on card opens details modal
+    card.addEventListener('click', (e) => {
+        if (e.target.closest('button')) return;
+        showOrderDetailsModal(order, options.onAccept);
+    });
+
+    return card;
+}
+
+/**
+ * Shows the order details in an overlay modal matching the mobile reference
+ */
+export function showOrderDetailsModal(order, onAcceptCallback = null) {
+    let overlay = document.getElementById('modal-overlay');
+    let modalContainer = document.getElementById('modal-container');
+    
+    if (!overlay) {
+        overlay = createElement('div', ['modal-overlay', 'hidden'], { id: 'modal-overlay' });
+        document.body.appendChild(overlay);
+    }
+    if (!modalContainer) {
+        modalContainer = createElement('div', ['modal-card'], { id: 'modal-container' });
+        overlay.appendChild(modalContainer);
+    }
+
+    modalContainer.replaceChildren();
+    modalContainer.style.background = 'transparent';
+    modalContainer.style.border = 'none';
+    modalContainer.style.borderTop = 'none';
+    modalContainer.style.boxShadow = 'none';
+    modalContainer.style.padding = '0';
+    modalContainer.style.maxWidth = '480px';
+    modalContainer.style.width = '100%';
+    modalContainer.style.maxHeight = '92vh';
+    modalContainer.style.overflowY = 'auto';
+
+    // Click outside backdrop to close
+    overlay.onclick = (e) => {
+        if (e.target === overlay) closeModal();
+    };
+
+    const orderView = renderOrderView(order, {
+        showHeader: true,
+        onBack: () => closeModal(),
+        acceptText: '✔ تأكيد القبول',
+        onAccept: onAcceptCallback ? () => {
+            onAcceptCallback(order);
+            closeModal();
+        } : null
+    });
+
+    modalContainer.appendChild(orderView);
+    overlay.classList.remove('hidden');
+    overlay.style.display = 'flex';
+    overlay.style.zIndex = '999999';
+}
+
+
 
 
