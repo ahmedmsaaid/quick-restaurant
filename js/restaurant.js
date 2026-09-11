@@ -1944,16 +1944,51 @@ function showAddRestaurantMenuModal() {
 /* ==========================================================================
    Tab 4: Operations Weekly Scheduler (REST API /api/v1/schedules)
    ========================================================================== */
+function normalizeSchedule(raw) {
+    if (!raw) return null;
+    const id = raw.id != null ? Number(raw.id) : (raw.Id != null ? Number(raw.Id) : 0);
+    const startTime = (raw.startTime || raw.StartTime || '09:00:00').toString();
+    const endTime = (raw.endTime || raw.EndTime || '23:00:00').toString();
+    const type = raw.type != null ? Number(raw.type) : (raw.Type != null ? Number(raw.Type) : 1);
+
+    let days = [];
+    const rawDays = raw.daysOfWeek ?? raw.DaysOfWeek;
+    if (Array.isArray(rawDays)) {
+        days = rawDays.map(d => Number(d)).filter(d => !isNaN(d) && d >= 0 && d <= 6);
+    } else if (typeof rawDays === 'string') {
+        try {
+            const parsed = JSON.parse(rawDays);
+            if (Array.isArray(parsed)) {
+                days = parsed.map(d => Number(d)).filter(d => !isNaN(d) && d >= 0 && d <= 6);
+            }
+        } catch (_) {}
+    }
+
+    days = Array.from(new Set(days)).sort((a, b) => a - b);
+
+    return {
+        id,
+        startTime,
+        endTime,
+        type,
+        daysOfWeek: days,
+        creatorId: raw.creatorId ?? raw.CreatorId ?? null
+    };
+}
+
 async function refreshSchedules() {
     try {
         const userJson = localStorage.getItem('qs_vendor_user');
         let creatorId = null;
-        try { if (userJson) creatorId = JSON.parse(userJson).id || null; } catch (_) {}
+        try {
+            if (userJson) {
+                const u = JSON.parse(userJson);
+                creatorId = u.id != null ? Number(u.id) : null;
+            }
+        } catch (_) {}
 
         const bodyObj = { pageNumber: 1, pageSize: 100, enablePagination: false };
         if (creatorId) {
-            bodyObj.creatorId = creatorId;
-            bodyObj.filter = { creatorId: creatorId };
             bodyObj.filters = { creatorId: creatorId };
         }
 
@@ -1961,19 +1996,25 @@ async function refreshSchedules() {
             method: 'PATCH',
             body: JSON.stringify(bodyObj)
         });
-        if (res && res.success) {
-            let list = [];
-            if (Array.isArray(res.result)) list = res.result;
-            else if (res.result && Array.isArray(res.result.items)) list = res.result.items;
-            else if (res.result && Array.isArray(res.result.data)) list = res.result.data;
-            schedules = list;
-            schedulesLoaded = true;
-            return schedules;
-        } else {
-            schedules = [];
-            schedulesLoaded = true;
-            return [];
+        
+        let list = [];
+        if (res) {
+            if (Array.isArray(res)) {
+                list = res;
+            } else if (res.result) {
+                if (Array.isArray(res.result)) list = res.result;
+                else if (Array.isArray(res.result.items)) list = res.result.items;
+                else if (Array.isArray(res.result.data)) list = res.result.data;
+            } else if (Array.isArray(res.data)) {
+                list = res.data;
+            } else if (Array.isArray(res.items)) {
+                list = res.items;
+            }
         }
+
+        schedules = list.map(normalizeSchedule).filter(Boolean);
+        schedulesLoaded = true;
+        return schedules;
     } catch (err) {
         console.error('Failed to fetch schedules:', err);
         schedules = [];
@@ -2004,7 +2045,7 @@ async function deleteScheduleApi(id) {
 
 function formatScheduleTime(timeStr) {
     if (!timeStr) return '--:--';
-    const parts = timeStr.split(':');
+    const parts = timeStr.toString().split(':');
     if (parts.length < 2) return timeStr;
     let h = parseInt(parts[0], 10);
     const m = parts[1];
@@ -2037,50 +2078,6 @@ function renderScheduleTab(parent) {
     topBar.appendChild(addBtn);
 
     mainWrapper.appendChild(topBar);
-
-    // Emergency Closure Banner / Toggle Row
-    const userJsonNow = localStorage.getItem(apiClient.getUserKey());
-    const uNow = JSON.parse(userJsonNow || '{}');
-    const isCurrentlyClosed = (uNow.active === 0 || uNow.active === false);
-
-    const closurePanel = ui.createElement('div', [], { style: 'padding: 1.25rem 1.5rem; background: rgba(255, 71, 87, 0.05); border: 1px solid rgba(255, 71, 87, 0.2); border-radius: 8px; display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap;' });
-    
-    const closureText = ui.createElement('div', []);
-    closureText.appendChild(ui.createElementWithText('strong', t('rest_sched_closure_title'), [], { style: 'display: block; font-size: 0.95rem; color: var(--color-danger); margin-bottom: 0.2rem;' }));
-    closureText.appendChild(ui.createElementWithText('span', t('rest_sched_closure_desc'), ['text-secondary'], { style: 'font-size: 0.82rem;' }));
-    closurePanel.appendChild(closureText);
-
-    const switchLabel = ui.createElement('label', ['switch-container'], { style: 'display: inline-flex; align-items: center; gap: 0.75rem; cursor: pointer;' });
-    const switchInput = ui.createElement('input', ['switch-input', 'switch-danger'], {
-        type: 'checkbox',
-        checked: isCurrentlyClosed ? 'checked' : ''
-    });
-    
-    const closureStatusText = ui.createElementWithText('span', isCurrentlyClosed ? t('rest_sched_closure_on') : t('rest_sched_closure_off'), [], { style: 'font-weight: 700; font-size: 0.9rem;' });
-
-    switchInput.addEventListener('change', async (e) => {
-        switchInput.disabled = true;
-        try {
-            await toggleActivityStatus();
-            const updatedUser = JSON.parse(localStorage.getItem(apiClient.getUserKey()) || '{}');
-            const nowClosed = (updatedUser.active === 0 || updatedUser.active === false);
-            closureStatusText.textContent = nowClosed ? t('rest_sched_closure_on') : t('rest_sched_closure_off');
-            ui.showToast(nowClosed ? t('rest_sched_closure_on') : t('rest_sched_closure_off'), nowClosed ? 'warning' : 'success');
-        } catch (err) {
-            console.error('Failed to toggle activity status:', err);
-            ui.showToast(t('error_generic') + ': ' + err.message, 'error');
-            e.target.checked = !e.target.checked;
-        } finally {
-            switchInput.disabled = false;
-        }
-    });
-
-    const slider = ui.createElement('span', ['switch-slider']);
-    switchLabel.appendChild(switchInput);
-    switchLabel.appendChild(slider);
-    switchLabel.appendChild(closureStatusText);
-    closurePanel.appendChild(switchLabel);
-    mainWrapper.appendChild(closurePanel);
 
     // Schedule Cards Grid Container
     const gridContainer = ui.createElement('div', [], { style: 'display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1.25rem; width: 100%;' });
@@ -2146,7 +2143,7 @@ function renderScheduleTab(parent) {
             timeBox.appendChild(ui.createElementWithText('span', `${formatScheduleTime(item.startTime)} — ${formatScheduleTime(item.endTime)}`, [], { style: 'font-weight: 700; font-size: 1.05rem; letter-spacing: 0.3px;' }));
             card.appendChild(timeBox);
 
-            // Operating Days Pills
+            // Operating Days Pills (Show only active days)
             const daysWrapper = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.4rem;' });
             daysWrapper.appendChild(ui.createElementWithText('span', t('sched_days_label') + ':', ['text-secondary'], { style: 'font-size: 0.8rem;' }));
 
@@ -2154,15 +2151,26 @@ function renderScheduleTab(parent) {
             
             const activeDays = Array.isArray(item.daysOfWeek) ? item.daysOfWeek : [];
             const orderedDays = [6, 0, 1, 2, 3, 4, 5];
-            orderedDays.forEach((d) => {
-                const isActive = activeDays.includes(d);
-                const dayPill = ui.createElementWithText('span', getDayName(d), [], {
-                    style: isActive
-                        ? 'background: var(--color-primary, #00796B); color: #ffffff; padding: 0.2rem 0.55rem; border-radius: 12px; font-size: 0.75rem; font-weight: 600;'
-                        : 'background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.3); padding: 0.2rem 0.55rem; border-radius: 12px; font-size: 0.75rem; text-decoration: line-through;'
+            const filteredActiveDays = orderedDays.filter(d => activeDays.includes(d));
+
+            if (filteredActiveDays.length === 7) {
+                const allPill = ui.createElementWithText('span', isAr ? '🌍 طوال أيام الأسبوع' : '🌍 All Week Days', [], {
+                    style: 'background: var(--color-primary, #00796B); color: #ffffff; padding: 0.25rem 0.65rem; border-radius: 12px; font-size: 0.78rem; font-weight: 600;'
                 });
-                daysContainer.appendChild(dayPill);
-            });
+                daysContainer.appendChild(allPill);
+            } else if (filteredActiveDays.length > 0) {
+                filteredActiveDays.forEach((d) => {
+                    const dayPill = ui.createElementWithText('span', getDayName(d), [], {
+                        style: 'background: var(--color-primary, #00796B); color: #ffffff; padding: 0.25rem 0.6rem; border-radius: 12px; font-size: 0.78rem; font-weight: 600;'
+                    });
+                    daysContainer.appendChild(dayPill);
+                });
+            } else {
+                const emptyPill = ui.createElementWithText('span', isAr ? 'لا توجد أيام محددة' : 'No days selected', ['text-secondary'], {
+                    style: 'font-size: 0.78rem; font-style: italic;'
+                });
+                daysContainer.appendChild(emptyPill);
+            }
 
             daysWrapper.appendChild(daysContainer);
             card.appendChild(daysWrapper);
@@ -2174,19 +2182,17 @@ function renderScheduleTab(parent) {
     mainWrapper.appendChild(gridContainer);
     parent.appendChild(mainWrapper);
 
-    // Initial Data Fetch
-    if (schedulesLoaded) {
-        renderGridContent();
-        refreshSchedules().then(() => renderGridContent());
-    } else {
-        ui.renderShimmerGrid(gridContainer);
-        refreshSchedules().then(() => renderGridContent());
-    }
+    // Fetch Live Schedules from API
+    ui.renderShimmerGrid(gridContainer);
+    refreshSchedules().then(() => renderGridContent());
 }
 
 function showScheduleModal(existingItem = null, onSuccessCallback = null) {
     const isAr = getLanguage() === 'ar';
-    const titleStr = existingItem ? (isAr ? '✏️ تعديل الموعد' : '✏️ Edit Schedule') : (isAr ? '➕ إضافة موعد جديد' : '➕ Add New Schedule');
+    const normExisting = existingItem ? normalizeSchedule(existingItem) : null;
+    const isEdit = Boolean(normExisting && normExisting.id);
+
+    const titleStr = isEdit ? (isAr ? '✏️ تعديل الموعد' : '✏️ Edit Schedule') : (isAr ? '➕ إضافة موعد جديد' : '➕ Add New Schedule');
     const modalContent = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 1.25rem; width: 100%; max-width: 480px;' });
 
     // Helpful Tip Banner
@@ -2205,12 +2211,14 @@ function showScheduleModal(existingItem = null, onSuccessCallback = null) {
     const optClosed = ui.createElementWithText('option', t('sched_type_closed'), [], { value: '2' });
     typeSelect.appendChild(optWorking);
     typeSelect.appendChild(optClosed);
-    typeSelect.value = existingItem ? String(existingItem.type || 1) : '1';
+    typeSelect.value = normExisting ? String(normExisting.type || 1) : '1';
     typeGroup.appendChild(typeSelect);
     modalContent.appendChild(typeGroup);
 
     // 2. Days Multi-Select
-    let selectedDays = existingItem && Array.isArray(existingItem.daysOfWeek) ? [...existingItem.daysOfWeek] : [6, 0, 1, 2, 3, 4, 5];
+    let selectedDays = normExisting && Array.isArray(normExisting.daysOfWeek) && normExisting.daysOfWeek.length > 0
+        ? [...normExisting.daysOfWeek]
+        : [6, 0, 1, 2, 3, 4, 5];
 
     const daysGroup = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.5rem;' });
     
@@ -2221,7 +2229,7 @@ function showScheduleModal(existingItem = null, onSuccessCallback = null) {
     
     const btnAll = ui.createElementWithText('button', t('sched_select_all'), ['btn', 'btn-link', 'btn-xs'], { type: 'button', style: 'font-size: 0.75rem; text-decoration: underline;' });
     btnAll.addEventListener('click', () => {
-        selectedDays = [0, 1, 2, 3, 4, 5, 6];
+        selectedDays = [6, 0, 1, 2, 3, 4, 5];
         updateDaysUI();
     });
     quickActions.appendChild(btnAll);
@@ -2254,6 +2262,7 @@ function showScheduleModal(existingItem = null, onSuccessCallback = null) {
                     selectedDays = selectedDays.filter(day => day !== d);
                 } else {
                     selectedDays.push(d);
+                    selectedDays.sort((a, b) => a - b);
                 }
                 updateDaysUI();
             });
@@ -2269,8 +2278,10 @@ function showScheduleModal(existingItem = null, onSuccessCallback = null) {
 
     const extractHHMM = (str) => {
         if (!str) return '09:00';
-        const parts = str.split(':');
-        if (parts.length >= 2) return `${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}`;
+        const match = str.toString().match(/(\d{1,2}):(\d{2})/);
+        if (match) {
+            return `${match[1].padStart(2, '0')}:${match[2]}`;
+        }
         return '09:00';
     };
 
@@ -2278,7 +2289,7 @@ function showScheduleModal(existingItem = null, onSuccessCallback = null) {
     startInputBox.appendChild(ui.createElementWithText('label', t('sched_start_time'), [], { style: 'font-size: 0.85rem; font-weight: 600;' }));
     const startTimeInput = ui.createElement('input', ['search-input'], {
         type: 'time',
-        value: existingItem ? extractHHMM(existingItem.startTime) : '09:00'
+        value: normExisting ? extractHHMM(normExisting.startTime) : '09:00'
     });
     startInputBox.appendChild(startTimeInput);
     timesGroup.appendChild(startInputBox);
@@ -2287,7 +2298,7 @@ function showScheduleModal(existingItem = null, onSuccessCallback = null) {
     endInputBox.appendChild(ui.createElementWithText('label', t('sched_end_time'), [], { style: 'font-size: 0.85rem; font-weight: 600;' }));
     const endTimeInput = ui.createElement('input', ['search-input'], {
         type: 'time',
-        value: existingItem ? extractHHMM(existingItem.endTime) : '23:00'
+        value: normExisting ? extractHHMM(normExisting.endTime) : '23:00'
     });
     endInputBox.appendChild(endTimeInput);
     timesGroup.appendChild(endInputBox);
@@ -2315,21 +2326,23 @@ function showScheduleModal(existingItem = null, onSuccessCallback = null) {
         saveBtn.disabled = true;
         saveBtn.textContent = isAr ? 'جاري الحفظ...' : 'Saving...';
 
-        const startTimeFull = startTimeInput.value.length === 5 ? `${startTimeInput.value}:00` : startTimeInput.value;
-        const endTimeFull = endTimeInput.value.length === 5 ? `${endTimeInput.value}:00` : endTimeInput.value;
+        const sVal = startTimeInput.value.trim();
+        const eVal = endTimeInput.value.trim();
+        const startTimeFull = sVal.length === 5 ? `${sVal}:00` : sVal;
+        const endTimeFull = eVal.length === 5 ? `${eVal}:00` : eVal;
 
         const payload = {
             startTime: startTimeFull,
             endTime: endTimeFull,
             type: parseInt(typeSelect.value, 10),
-            daysOfWeek: selectedDays
+            daysOfWeek: selectedDays.map(Number)
         };
-        if (existingItem && existingItem.id) {
-            payload.id = existingItem.id;
+        if (isEdit) {
+            payload.id = Number(normExisting.id);
         }
 
         try {
-            if (existingItem && existingItem.id) {
+            if (isEdit) {
                 await updateSchedule(payload);
                 ui.showToast(isAr ? 'تم تحديث الموعد بنجاح' : 'Schedule updated successfully', 'success');
             } else {
@@ -2341,7 +2354,7 @@ function showScheduleModal(existingItem = null, onSuccessCallback = null) {
             if (onSuccessCallback) onSuccessCallback();
         } catch (err) {
             console.error('Save schedule error:', err);
-            ui.showToast(t('error_generic') + ': ' + err.message, 'error');
+            ui.showToast(t('error_generic') + ': ' + (err.message || err), 'error');
         } finally {
             saveBtn.disabled = false;
             saveBtn.textContent = isAr ? 'حفظ الموعد' : 'Save Schedule';
@@ -3618,46 +3631,6 @@ function renderProfileTab(parent) {
     busyBox.appendChild(bSwLabel);
     statusGrid.appendChild(busyBox);
 
-    // 2. Emergency Store Closure Toggle (الإغلاق الاضطراري المؤقت)
-    const isCurrentlyClosed = (user.active === 0 || user.active === false);
-    const closureBox = ui.createElement('div', [], { style: 'padding: 1.1rem 1.25rem; background: rgba(255, 71, 87, 0.08); border: 1px solid rgba(255, 71, 87, 0.25); border-radius: 8px; display: flex; flex-direction: column; justify-content: space-between; gap: 0.75rem;' });
-
-    const closureHeader = ui.createElement('div', []);
-    closureHeader.appendChild(ui.createElementWithText('strong', t('rest_sched_closure_title'), [], { style: 'display: block; font-size: 0.95rem; color: var(--color-danger); margin-bottom: 0.25rem;' }));
-    closureHeader.appendChild(ui.createElementWithText('span', t('rest_sched_closure_desc'), ['text-secondary'], { style: 'font-size: 0.8rem;' }));
-    closureBox.appendChild(closureHeader);
-
-    const cSwLabel = ui.createElement('label', ['switch-container'], { style: 'display: inline-flex; align-items: center; gap: 0.75rem; cursor: pointer;' });
-    const cSwInput = ui.createElement('input', ['switch-input', 'switch-danger'], {
-        type: 'checkbox',
-        checked: isCurrentlyClosed ? 'checked' : ''
-    });
-    const closureStatusText = ui.createElementWithText('span', isCurrentlyClosed ? t('rest_sched_closure_on') : t('rest_sched_closure_off'), [], { style: 'font-weight: 700; font-size: 0.9rem;' });
-
-    cSwInput.addEventListener('change', async (e) => {
-        cSwInput.disabled = true;
-        try {
-            await toggleActivityStatus();
-            const updatedUser = JSON.parse(localStorage.getItem('qs_vendor_user') || '{}');
-            const nowClosed = (updatedUser.active === 0 || updatedUser.active === false);
-            closureStatusText.textContent = nowClosed ? t('rest_sched_closure_on') : t('rest_sched_closure_off');
-            ui.showToast(nowClosed ? t('rest_sched_closure_on') : t('rest_sched_closure_off'), nowClosed ? 'warning' : 'success');
-        } catch (err) {
-            console.error('Failed to toggle activity status:', err);
-            ui.showToast(t('error_generic') + ': ' + err.message, 'error');
-            e.target.checked = !e.target.checked;
-        } finally {
-            cSwInput.disabled = false;
-        }
-    });
-
-    const cSlider = ui.createElement('span', ['switch-slider']);
-    cSwLabel.appendChild(cSwInput);
-    cSwLabel.appendChild(cSlider);
-    cSwLabel.appendChild(closureStatusText);
-    closureBox.appendChild(cSwLabel);
-    statusGrid.appendChild(closureBox);
-
     statusPanel.appendChild(statusGrid);
     wrapper.appendChild(statusPanel);
 
@@ -3744,15 +3717,26 @@ function renderProfileTab(parent) {
             const daysContainer = ui.createElement('div', [], { style: 'display: flex; flex-wrap: wrap; gap: 0.3rem;' });
             const activeDays = Array.isArray(item.daysOfWeek) ? item.daysOfWeek : [];
             const orderedDays = [6, 0, 1, 2, 3, 4, 5];
-            orderedDays.forEach((d) => {
-                const isActive = activeDays.includes(d);
-                const dayPill = ui.createElementWithText('span', getDayName(d), [], {
-                    style: isActive
-                        ? 'background: var(--color-primary, #00796B); color: #ffffff; padding: 0.15rem 0.5rem; border-radius: 12px; font-size: 0.72rem; font-weight: 600;'
-                        : 'background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.3); padding: 0.15rem 0.5rem; border-radius: 12px; font-size: 0.72rem; text-decoration: line-through;'
+            const filteredActiveDays = orderedDays.filter(d => activeDays.includes(d));
+
+            if (filteredActiveDays.length === 7) {
+                const allPill = ui.createElementWithText('span', isAr ? '🌍 طوال أيام الأسبوع' : '🌍 All Week Days', [], {
+                    style: 'background: var(--color-primary, #00796B); color: #ffffff; padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.75rem; font-weight: 600;'
                 });
-                daysContainer.appendChild(dayPill);
-            });
+                daysContainer.appendChild(allPill);
+            } else if (filteredActiveDays.length > 0) {
+                filteredActiveDays.forEach((d) => {
+                    const dayPill = ui.createElementWithText('span', getDayName(d), [], {
+                        style: 'background: var(--color-primary, #00796B); color: #ffffff; padding: 0.15rem 0.5rem; border-radius: 12px; font-size: 0.72rem; font-weight: 600;'
+                    });
+                    daysContainer.appendChild(dayPill);
+                });
+            } else {
+                const emptyPill = ui.createElementWithText('span', isAr ? 'لا توجد أيام محددة' : 'No days selected', ['text-secondary'], {
+                    style: 'font-size: 0.75rem; font-style: italic;'
+                });
+                daysContainer.appendChild(emptyPill);
+            }
 
             daysWrapper.appendChild(daysContainer);
             card.appendChild(daysWrapper);
@@ -3764,13 +3748,9 @@ function renderProfileTab(parent) {
     schedPanel.appendChild(gridContainer);
     wrapper.appendChild(schedPanel);
 
-    if (schedulesLoaded) {
-        renderGridContent();
-        refreshSchedules().then(() => renderGridContent());
-    } else {
-        ui.renderShimmerGrid(gridContainer);
-        refreshSchedules().then(() => renderGridContent());
-    }
+    // Fetch Live Schedules from API
+    ui.renderShimmerGrid(gridContainer);
+    refreshSchedules().then(() => renderGridContent());
 
     // ── SECTION 3: Basic Profile Information (البيانات الأساسية للمطعم) ──
     const infoPanel = ui.createElement('div', ['glass-panel'], { style: 'padding: 1.5rem;' });

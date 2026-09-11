@@ -29,12 +29,15 @@ let orders = [];
 let categories = [];
 let discounts = [];
 let offers = [];
+let offerStatusFilter = 'all';
 let branches = [];
 let categoriesLoaded = false;
 let discountsLoaded = false;
 let offersLoaded = false;
 let branchesLoaded = false;
 let profileLoaded = false;
+let schedules = [];
+let schedulesLoaded = false;
 let knownOrderIds = null;
 let activeDashboardChatInterval = null;
 let chatPollInterval = null;
@@ -183,11 +186,24 @@ async function toggleActivityStatus() {
     return profile.active;
 }
 
+// Helper: Toggle store busy status via API (PATCH /api/v1/users/toggle-busy)
+async function toggleBusyStatus() {
+    const profile = JSON.parse(localStorage.getItem('qs_vendor_user') || '{}');
+    await apiFetch('/api/v1/users/toggle-busy', { method: 'PATCH' });
+    // Flip busy status locally
+    profile.busy = !(profile.busy === true || profile.busy === 1);
+    localStorage.setItem('qs_vendor_user', JSON.stringify(profile));
+    return profile.busy;
+}
+
 async function updateUserSettings(days, hours, descriptionText) {
     const profile = JSON.parse(localStorage.getItem('qs_vendor_user') || '{}');
+    const isBusy = !!(profile.busy === true || profile.busy === 1);
+    const body = { name: profile.name || 'Market', photo: profile.photo || '', description: descriptionText, busy: isBusy };
+    if (profile.categoryId) body.categoryId = parseInt(profile.categoryId, 10);
     await apiFetch('/api/v1/users/update-profile', {
         method: 'PUT',
-        body: JSON.stringify({ name: profile.name || 'Market', photo: profile.photo || '', description: descriptionText })
+        body: JSON.stringify(body)
     });
     profile.description = descriptionText;
     localStorage.setItem('qs_vendor_user', JSON.stringify(profile));
@@ -322,6 +338,7 @@ async function refreshOrders() {
                         name: p.productName || (menuItem ? menuItem.name : 'Item'),
                         qty: p.quantity,
                         price: p.price,
+                        image: (menuItem && (menuItem.image || menuItem.photo)) ? (menuItem.image || menuItem.photo) : (p.photo || p.image || ''),
                         picked: false,
                         productId: p.productId
                     };
@@ -331,6 +348,9 @@ async function refreshOrders() {
                     status: mapBackendStatusToLocal(ord.status),
                     items,
                     totalPrice: ord.totalPrice - (ord.deliveryFee || 0) - (ord.orderFee || 0),
+                    deliveryFee: ord.deliveryFee || 0,
+                    finalTotal: ord.totalPrice,
+                    paymentMethod: ord.paymentMethod || (ord.rawOrder && ord.rawOrder.paymentMethod) || 0,
                     notes: ord.note || ord.notes || '',
                     customerName: ord.user ? ord.user.name : (getLanguage() === 'ar' ? 'عميل' : 'Customer'),
                     customerPhone: ord.user ? ord.user.phone : '',
@@ -464,12 +484,13 @@ async function refreshOffers() {
                 tempOffers.push({
                     id: o.id, name: o.name, price: o.price,
                     featuredPhoto: o.featuredPhoto || '',
+                    otherPhotos: Array.isArray(o.otherPhotos) && o.otherPhotos.length > 0 ? o.otherPhotos : (o.featuredPhoto ? [o.featuredPhoto] : []),
                     description: o.description || '',
                     active: o.active,
                     offerType: o.offerType, type: o.type,
-                    numberOfClicks: o.numberOfClicks || 0,
-                    numberOfWatches: o.numberOfWatches || 0,
-                    numberOfBooking: o.numberOfBooking || 0,
+                    numberOfClicks: o.numberOfClicks,
+                    numberOfWatches: o.numberOfWatches,
+                    numberOfBooking: o.numberOfBooking,
                     products: resolvedProducts,
                     createdOn: o.createdOn
                 });
@@ -911,6 +932,8 @@ function renderActiveTab() {
             }
         } else if (activeTab === 'chats') {
             renderChatsTab(container);
+        } else if (activeTab === 'schedule') {
+            renderScheduleTab(container);
         } else if (activeTab === 'settings') {
             renderSettingsTab(container);
         }
@@ -1520,7 +1543,7 @@ function renderOrdersTab(parent) {
     // New orders (status=0/1): need accept or decline
     if (newOrders.length > 0) {
         parent.appendChild(ui.createElementWithText('h3', getLanguage() === 'ar' ? '🔔 طلبات جديدة تحتاج قبول' : '🔔 New Orders - Needs Acceptance', [], { style: 'margin-bottom: 1rem; font-size: 1.05rem;' }));
-        const grid0 = ui.createElement('div', ['analytics-grid'], { style: 'margin-bottom: 2rem;' });
+        const grid0 = ui.createElement('div', ['analytics-grid', 'qs-orders-grid'], { style: 'margin-bottom: 2rem;' });
         newOrders.forEach(ord => buildOrderCard(grid0, ord));
         parent.appendChild(grid0);
     }
@@ -1528,7 +1551,7 @@ function renderOrdersTab(parent) {
     // Waiting for driver (status=2): accepted, captain not yet confirmed
     if (waitingOrders.length > 0) {
         parent.appendChild(ui.createElementWithText('h3', getLanguage() === 'ar' ? '⏳ بانتظار تعيين سائق' : '⏳ Awaiting Driver Assignment', [], { style: 'margin-bottom: 1rem; font-size: 1.05rem; color: var(--color-pending);' }));
-        const grid1 = ui.createElement('div', ['analytics-grid'], { style: 'margin-bottom: 2rem;' });
+        const grid1 = ui.createElement('div', ['analytics-grid', 'qs-orders-grid'], { style: 'margin-bottom: 2rem;' });
         waitingOrders.forEach(ord => buildOrderCard(grid1, ord, true));
         parent.appendChild(grid1);
     }
@@ -1536,7 +1559,7 @@ function renderOrdersTab(parent) {
     // Active orders (status=3/4): captain confirmed, market preparing
     if (confirmedOrders.length > 0) {
         parent.appendChild(ui.createElementWithText('h3', getLanguage() === 'ar' ? '🛒 طلبات قيد التجهيز' : '🛒 Active Orders', [], { style: 'margin-bottom: 1rem; font-size: 1.05rem;' }));
-        const grid = ui.createElement('div', ['analytics-grid'], { style: 'margin-bottom: 2rem;' });
+        const grid = ui.createElement('div', ['analytics-grid', 'qs-orders-grid'], { style: 'margin-bottom: 2rem;' });
         confirmedOrders.forEach(ord => buildOrderCard(grid, ord));
         parent.appendChild(grid);
     }
@@ -1544,74 +1567,41 @@ function renderOrdersTab(parent) {
     // Completed orders
     if (completedOrders.length > 0) {
         parent.appendChild(ui.createElementWithText('h3', getLanguage() === 'ar' ? '✅ الطلبات المكتملة' : '✅ Completed Orders', [], { style: 'margin-bottom: 1rem; font-size: 1.05rem; color: var(--color-success);' }));
-        const grid2 = ui.createElement('div', ['analytics-grid']);
+        const grid2 = ui.createElement('div', ['analytics-grid', 'qs-orders-grid']);
         completedOrders.forEach(ord => buildOrderCard(grid2, ord, true));
         parent.appendChild(grid2);
     }
 }
 
 function buildOrderCard(container, ord, readonly = false) {
-    const card = ui.createElement('div', ['summary-card']);
-
-    // Header
-    const header = ui.createElement('div', [], { style: 'display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;' });
-    header.appendChild(ui.createElementWithText('strong', `${getLanguage() === 'ar' ? 'طلب #' : 'Order #'}${ord.id}`, [], { style: 'font-size: 1.05rem;' }));
-
-    const statusColors = { 
-        new: 'badge-pending', pending_payment: 'badge-warning', waiting_for_driver: 'badge-info',
-        confirmed: 'badge-info', preparing: 'badge-info', ready_for_pickup: 'badge-success',
-        on_the_way: 'badge-info', completed: 'badge-success', declined: 'badge-danger'
-    };
-    const statusLabels = {
-        new: getLanguage() === 'ar' ? 'جديد' : 'New',
-        pending_payment: getLanguage() === 'ar' ? 'بانتظار الدفع' : 'Awaiting Payment',
-        waiting_for_driver: getLanguage() === 'ar' ? 'بانتظار سائق' : 'Awaiting Driver',
-        confirmed: getLanguage() === 'ar' ? 'مؤكد - ابدأ التجهيز' : 'Confirmed - Start Prep',
-        preparing: getLanguage() === 'ar' ? 'جارٍ التجهيز' : 'Preparing',
-        ready_for_pickup: getLanguage() === 'ar' ? 'جاهز' : 'Ready',
-        on_the_way: getLanguage() === 'ar' ? 'في الطريق' : 'On the Way',
-        completed: getLanguage() === 'ar' ? 'مكتمل' : 'Done',
-        declined: getLanguage() === 'ar' ? 'مرفوض' : 'Declined'
-    };
-    header.appendChild(ui.createElementWithText('span', statusLabels[ord.status] || ord.status, ['badge', statusColors[ord.status] || 'badge-info']));
-    card.appendChild(header);
-
-    card.appendChild(ui.createElementWithText('div', `👤 ${ord.customerName}`, [], { style: 'font-size: 0.85rem; margin-bottom: 0.25rem;' }));
-    card.appendChild(ui.createElementWithText('div', `📦 ${ord.items.length} ${getLanguage() === 'ar' ? 'صنف' : 'items'}`, [], { style: 'font-size: 0.85rem; margin-bottom: 0.25rem;' }));
-    card.appendChild(ui.createElementWithText('div', `💵 ${(parseFloat(ord.totalPrice) || 0).toFixed(2)} ج.م`, [], { style: 'font-weight: 800; color: var(--color-success); font-size: 1.1rem; margin-bottom: 0.75rem;' }));
-
-    const previewText = ord.items.map(it => `${it.qty}x ${it.name}`).join(', ');
-    card.appendChild(ui.createElementWithText('p', previewText.length > 60 ? previewText.slice(0, 57) + '...' : previewText, ['text-muted'], { style: 'font-size: 0.78rem; margin-bottom: 1rem;' }));
+    const isAr = getLanguage() === 'ar';
+    let onAccept = null;
+    let acceptText = '✔ تأكيد القبول';
 
     if (!readonly) {
-        const btnRow = ui.createElement('div', [], { style: 'display: flex; gap: 0.5rem; flex-wrap: wrap;' });
-
         if (ord.status === 'new' || ord.status === 'pending_payment') {
-            // New order: accept (set to waiting_for_driver=2) or decline
-            const acceptBtn = ui.createElementWithText('button', getLanguage() === 'ar' ? '✅ قبول الطلب' : '✅ Accept Order', ['btn', 'btn-primary', 'btn-sm'], { style: 'flex: 1; justify-content: center;' });
-            acceptBtn.addEventListener('click', () => {
-                // Cash (paymentMethod=0) → waiting_for_driver(2), Online (paymentMethod=1) → pending_payment(1)
+            acceptText = '✔ تأكيد القبول';
+            onAccept = () => {
                 const paymentMethod = ord.rawOrder ? ord.rawOrder.paymentMethod : 0;
                 const acceptStatus = paymentMethod === 1 ? 'pending_payment' : 'waiting_for_driver';
                 updateStatus(ord.id, acceptStatus);
-            });
-
-            btnRow.appendChild(acceptBtn);
+            };
         } else if (ord.status === 'confirmed') {
-            // Captain confirmed: market can now start preparing
-            const startBtn = ui.createElementWithText('button', getLanguage() === 'ar' ? '🛒 ابدأ التجهيز' : '🛒 Start Preparing', ['btn', 'btn-primary', 'btn-sm'], { style: 'flex: 1; justify-content: center;' });
-            startBtn.addEventListener('click', () => updateStatus(ord.id, 'preparing'));
-            btnRow.appendChild(startBtn);
+            acceptText = isAr ? '🛒 ابدأ التجهيز' : '🛒 Start Preparing';
+            onAccept = () => updateStatus(ord.id, 'preparing');
         } else if (ord.status === 'preparing') {
-            const readyBtn = ui.createElementWithText('button', getLanguage() === 'ar' ? '📦 جاهز للاستلام' : '📦 Mark Ready', ['btn', 'btn-success', 'btn-sm'], { style: 'flex: 1; justify-content: center;' });
-            readyBtn.addEventListener('click', () => updateStatus(ord.id, 'ready_for_pickup'));
-            btnRow.appendChild(readyBtn);
+            acceptText = isAr ? '📦 جاهز للاستلام' : '📦 Mark Ready';
+            onAccept = () => updateStatus(ord.id, 'ready_for_pickup');
         }
-
-        card.appendChild(btnRow);
     }
 
-    container.appendChild(card);
+    const cardView = ui.renderDashboardOrderCard(ord, {
+        readonly: readonly || !onAccept,
+        acceptText,
+        onAccept
+    });
+
+    container.appendChild(cardView);
 }
 
 /* ==========================================================================
@@ -2099,10 +2089,178 @@ async function handleDeleteDiscount(disc) {
 /* ==========================================================================
    Tab 5: Offers
    ========================================================================== */
+function showEditOfferModal(offer) {
+    const isAr = getLanguage() === 'ar';
+    const form = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 1rem; min-width: 320px; max-width: 480px;' });
+
+    // Name
+    const nameWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem;' });
+    nameWrap.appendChild(ui.createElementWithText('label', t('offer_modal_name'), [], { style: 'font-weight: 600; font-size: 0.85rem;' }));
+    const nameIn = ui.createElement('input', ['search-input'], { type: 'text', value: offer.name || '' });
+    nameWrap.appendChild(nameIn);
+    form.appendChild(nameWrap);
+
+    // Description
+    const descWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem;' });
+    descWrap.appendChild(ui.createElementWithText('label', t('offer_modal_desc'), [], { style: 'font-weight: 600; font-size: 0.85rem;' }));
+    const descIn = ui.createElement('textarea', ['search-input'], { style: 'min-height: 60px; font-family: inherit; resize: vertical;' });
+    descIn.value = offer.description || '';
+    descWrap.appendChild(descIn);
+    form.appendChild(descWrap);
+
+    // Price
+    const priceWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem;' });
+    priceWrap.appendChild(ui.createElementWithText('label', t('offer_modal_price'), [], { style: 'font-weight: 600; font-size: 0.85rem;' }));
+    const priceIn = ui.createElement('input', ['search-input'], { type: 'number', step: '0.01', min: '0', value: offer.price || '0' });
+    priceWrap.appendChild(priceIn);
+    form.appendChild(priceWrap);
+
+    // Featured Image
+    const imgWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem;' });
+    imgWrap.appendChild(ui.createElementWithText('label', t('offer_modal_photo'), [], { style: 'font-weight: 600; font-size: 0.85rem;' }));
+    const imgRow = ui.createElement('div', [], { style: 'display: flex; gap: 1rem; align-items: center;' });
+    const imgInput = ui.createElement('input', [], { type: 'file', accept: 'image/*', style: 'display: none;' });
+    const uploadImgBtn = ui.createElementWithText('button', isAr ? 'تغيير الصورة' : 'Change Image', ['btn', 'btn-secondary']);
+    uploadImgBtn.addEventListener('click', () => imgInput.click());
+
+    let uploadedPhotoKey = offer.featuredPhoto || '';
+    const previewImg = ui.createElement('img', [], {
+        src: uploadedPhotoKey ? getImageUrl(uploadedPhotoKey) : '',
+        style: `width: 50px; height: 50px; border-radius: var(--radius-sm); border: 1px solid var(--border-color); object-fit: cover; display: ${uploadedPhotoKey ? 'block' : 'none'};`
+    });
+
+    imgInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            previewImg.src = URL.createObjectURL(file);
+            previewImg.style.display = 'block';
+            try {
+                const result = await uploadImage(file);
+                if (result) {
+                    uploadedPhotoKey = result;
+                    previewImg.src = getImageUrl(uploadedPhotoKey);
+                }
+            } catch (_) {
+                ui.showToast(t('offer_modal_img_upload_error'), 'error');
+            }
+        }
+    });
+    imgRow.appendChild(uploadImgBtn);
+    imgRow.appendChild(imgInput);
+    imgRow.appendChild(previewImg);
+    imgWrap.appendChild(imgRow);
+    form.appendChild(imgWrap);
+
+    // Active Toggle Switch
+    const activeLabel = ui.createElement('label', ['switch-container'], { style: 'margin-top: 0.5rem;' });
+    const activeInput = ui.createElement('input', ['switch-input'], { type: 'checkbox' });
+    activeInput.checked = !!offer.active;
+    const activeSlider = ui.createElement('div', ['switch-slider']);
+    activeLabel.appendChild(activeInput);
+    activeLabel.appendChild(activeSlider);
+    activeLabel.appendChild(ui.createElementWithText('span', isAr ? 'تفعيل العرض' : 'Enable Offer', [], { style: 'font-size: 0.85rem; font-weight: 600;' }));
+    form.appendChild(activeLabel);
+
+    ui.showModal(isAr ? '✏️ تعديل العرض' : '✏️ Edit Offer', form, [
+        {
+            text: isAr ? 'حفظ التعديلات' : 'Save Changes',
+            type: 'success',
+            closeOnClick: false,
+            onClick: async () => {
+                const name = nameIn.value.trim();
+                const priceVal = priceIn.value.trim();
+                const description = descIn.value.trim();
+
+                clearInvalid(nameIn);
+                clearInvalid(priceIn);
+
+                if (!name) {
+                    ui.setInputInvalid(nameIn, t('offer_modal_err_name'));
+                    return;
+                }
+                const price = parseFloat(priceVal);
+                if (!priceVal || isNaN(price) || price < 0) {
+                    ui.setInputInvalid(priceIn, t('offer_modal_err_price'));
+                    return;
+                }
+
+                try {
+                    const otherPhotosList = (Array.isArray(offer.otherPhotos) && offer.otherPhotos.length > 0)
+                        ? offer.otherPhotos
+                        : (uploadedPhotoKey ? [uploadedPhotoKey] : (offer.featuredPhoto ? [offer.featuredPhoto] : []));
+
+                    const updateBody = {
+                        id: offer.id,
+                        name: name,
+                        price: price,
+                        description: description,
+                        featuredPhoto: uploadedPhotoKey,
+                        otherPhotos: otherPhotosList,
+                        active: activeInput.checked,
+                        offerType: offer.offerType ?? 1,
+                        type: offer.type ?? 1
+                    };
+                    if (offer.products && Array.isArray(offer.products)) {
+                        updateBody.productId = offer.products.map(p => ({
+                            productId: p.id || p.productId,
+                            quantity: p.quantity || 1
+                        }));
+                    }
+
+                    await apiFetch('/api/v1/offers', {
+                        method: 'PUT',
+                        body: JSON.stringify(updateBody)
+                    });
+
+                    ui.showToast(isAr ? 'تم تعديل العرض بنجاح' : 'Offer updated successfully', 'success');
+                    ui.closeModal();
+                    await refreshOffers();
+                    renderActiveTab();
+                } catch (e) {
+                    console.error('Failed to update offer:', e);
+                    ui.showToast((isAr ? 'فشل تعديل العرض: ' : 'Failed to update offer: ') + e.message, 'error');
+                }
+            }
+        },
+        {
+            text: t('btn_cancel'),
+            type: 'secondary',
+            onClick: ui.closeModal
+        }
+    ]);
+}
+
 function renderOffersTab(parent) {
+    const isAr = getLanguage() === 'ar';
     const wrapper = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 1rem; width: 100%;' });
 
-    const topBar = ui.createElement('div', [], { style: 'display: flex; justify-content: flex-end;' });
+    const topBar = ui.createElement('div', [], { style: 'display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;' });
+
+    // Status Filter Select
+    const filterWrap = ui.createElement('div', [], { style: 'display: flex; gap: 0.5rem; align-items: center;' });
+    filterWrap.appendChild(ui.createElementWithText('span', isAr ? 'فلترة العروض:' : 'Filter Offers:', [], { style: 'font-weight: 600; font-size: 0.85rem;' }));
+
+    const filterSelect = ui.createElement('select', ['search-input'], { style: 'padding: 0.4rem 0.8rem; font-size: 0.85rem; border-radius: var(--radius-md); width: auto;' });
+    const optAll = ui.createElementWithText('option', isAr ? 'الكل' : 'All', [], { value: 'all' });
+    const optActive = ui.createElementWithText('option', isAr ? 'نشط' : 'Active', [], { value: 'active' });
+    const optInactive = ui.createElementWithText('option', isAr ? 'غير نشط' : 'Inactive', [], { value: 'inactive' });
+
+    if (offerStatusFilter === 'active') optActive.selected = true;
+    else if (offerStatusFilter === 'inactive') optInactive.selected = true;
+    else optAll.selected = true;
+
+    filterSelect.appendChild(optAll);
+    filterSelect.appendChild(optActive);
+    filterSelect.appendChild(optInactive);
+
+    filterSelect.addEventListener('change', (e) => {
+        offerStatusFilter = e.target.value;
+        renderActiveTab();
+    });
+
+    filterWrap.appendChild(filterSelect);
+    topBar.appendChild(filterWrap);
+
     const addOfferBtn = ui.createElementWithText('button', t('offer_add_btn'), ['btn', 'btn-primary']);
     addOfferBtn.addEventListener('click', showAddOfferModal);
     topBar.appendChild(addOfferBtn);
@@ -2110,13 +2268,19 @@ function renderOffersTab(parent) {
 
     const grid = ui.createElement('div', ['analytics-grid'], { style: 'margin-top: 1rem; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.5rem; width: 100%;' });
 
-    if (offers.length === 0) {
+    const filteredOffers = offers.filter(o => {
+        if (offerStatusFilter === 'active') return !!o.active;
+        if (offerStatusFilter === 'inactive') return !o.active;
+        return true;
+    });
+
+    if (filteredOffers.length === 0) {
         const emptyState = ui.createElement('div', ['glass-panel'], { style: 'text-align: center; padding: 3rem 1.5rem; width: 100%; grid-column: 1 / -1;' });
         emptyState.appendChild(ui.createElementWithText('h3', t('offer_empty_title'), [], { style: 'margin-bottom: 0.5rem; font-size: 1.25rem;' }));
         emptyState.appendChild(ui.createElementWithText('p', t('offer_empty_desc'), ['text-secondary'], { style: 'font-size: 0.85rem;' }));
         grid.appendChild(emptyState);
     } else {
-        offers.forEach(offer => {
+        filteredOffers.forEach(offer => {
             const card = ui.createElement('div', ['summary-card'], { style: 'display: flex; flex-direction: column; min-height: 260px; position: relative; overflow: hidden;' });
 
             // Accent blob
@@ -2138,12 +2302,20 @@ function renderOffersTab(parent) {
                 card.appendChild(imgPlaceholder);
             }
 
-            // Header row: name + delete
+            // Header row: name + actions (Edit + Delete)
             const headerRow = ui.createElement('div', [], { style: 'display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.4rem;' });
             headerRow.appendChild(ui.createElementWithText('strong', offer.name || '-', [], { style: 'font-size: 1.05rem; font-weight: 700; color: var(--text-primary); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;' }));
-            const delBtn = ui.createElementWithText('button', '🗑️', ['btn', 'btn-danger', 'btn-sm'], { style: 'padding: 0.25rem 0.5rem; font-size: 0.85rem; border-radius: 4px; flex-shrink: 0;' });
+            
+            const btnGroup = ui.createElement('div', [], { style: 'display: flex; gap: 0.35rem; flex-shrink: 0;' });
+            const editBtn = ui.createElementWithText('button', '✏️', ['btn', 'btn-secondary', 'btn-sm'], { style: 'padding: 0.25rem 0.5rem; font-size: 0.85rem; border-radius: 4px;' });
+            editBtn.addEventListener('click', () => showEditOfferModal(offer));
+            btnGroup.appendChild(editBtn);
+
+            const delBtn = ui.createElementWithText('button', '🗑️', ['btn', 'btn-danger', 'btn-sm'], { style: 'padding: 0.25rem 0.5rem; font-size: 0.85rem; border-radius: 4px;' });
             delBtn.addEventListener('click', () => handleDeleteOffer(offer));
-            headerRow.appendChild(delBtn);
+            btnGroup.appendChild(delBtn);
+
+            headerRow.appendChild(btnGroup);
             card.appendChild(headerRow);
 
             // Description
@@ -2156,7 +2328,7 @@ function renderOffersTab(parent) {
                 const prodContainer = ui.createElement('div', [], {
                     style: 'margin: 0.4rem 0; padding: 0.4rem 0.6rem; background: rgba(0, 0, 0, 0.02); border-radius: 6px; border: 1px dashed var(--border-color); max-height: 90px; overflow-y: auto;'
                 });
-                const prodTitle = ui.createElementWithText('div', getLanguage() === 'ar' ? '📦 المنتجات المشمولة:' : '📦 Included Products:', [], {
+                const prodTitle = ui.createElementWithText('div', isAr ? '📦 المنتجات المشمولة:' : '📦 Included Products:', [], {
                     style: 'font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.25rem;'
                 });
                 prodContainer.appendChild(prodTitle);
@@ -2165,7 +2337,7 @@ function renderOffersTab(parent) {
                 offer.products.forEach(p => {
                     const item = ui.createElement('div', [], { style: 'display: flex; justify-content: space-between; align-items: center; font-size: 0.72rem; color: var(--text-primary);' });
                     const qtyStr = p.quantity && p.quantity > 1 ? ` (x${p.quantity})` : '';
-                    item.appendChild(ui.createElementWithText('span', `• ${p.name || (getLanguage() === 'ar' ? 'منتج غير معروف' : 'Unknown Product')}${qtyStr}`, [], {
+                    item.appendChild(ui.createElementWithText('span', `• ${p.name || (isAr ? 'منتج غير معروف' : 'Unknown Product')}${qtyStr}`, [], {
                         style: 'text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 70%;'
                     }));
                     if (p.price) {
@@ -2178,9 +2350,65 @@ function renderOffersTab(parent) {
             }
 
             // Price
-            const priceEl = ui.createElement('div', [], { style: 'margin-bottom: 0.75rem;' });
+            const priceEl = ui.createElement('div', [], { style: 'margin-bottom: 0.5rem;' });
             priceEl.appendChild(ui.createElementWithText('span', `$${(parseFloat(offer.price) || 0).toFixed(2)}`, [], { style: 'font-size: 1.3rem; font-weight: 800; color: var(--color-success);' }));
             card.appendChild(priceEl);
+
+            // Active Toggle Switch on Card
+            const activeToggleWrap = ui.createElement('div', [], { style: 'display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; padding: 0.4rem 0.6rem; background: rgba(0, 0, 0, 0.03); border-radius: 6px; border: 1px solid var(--border-color);' });
+            activeToggleWrap.appendChild(ui.createElementWithText('span', isAr ? 'تفعيل العرض' : 'Enable Offer', [], { style: 'font-size: 0.8rem; font-weight: 600;' }));
+
+            const isOfferActive = !!offer.active;
+            const swLabel = ui.createElement('label', ['switch-container']);
+            const swInput = ui.createElement('input', ['switch-input'], { type: 'checkbox' });
+            swInput.checked = isOfferActive;
+
+            swInput.addEventListener('change', async (e) => {
+                swInput.disabled = true;
+                const newActive = swInput.checked;
+                try {
+                    const otherPhotosList = (Array.isArray(offer.otherPhotos) && offer.otherPhotos.length > 0)
+                        ? offer.otherPhotos
+                        : (offer.featuredPhoto ? [offer.featuredPhoto] : []);
+
+                    const updateBody = {
+                        id: offer.id,
+                        name: offer.name,
+                        price: parseFloat(offer.price) || 0,
+                        description: offer.description || '',
+                        featuredPhoto: offer.featuredPhoto || '',
+                        otherPhotos: otherPhotosList,
+                        active: newActive,
+                        offerType: offer.offerType ?? 1,
+                        type: offer.type ?? 1
+                    };
+                    if (offer.products && Array.isArray(offer.products)) {
+                        updateBody.productId = offer.products.map(p => ({
+                            productId: p.id || p.productId,
+                            quantity: p.quantity || 1
+                        }));
+                    }
+                    await apiFetch('/api/v1/offers', {
+                        method: 'PUT',
+                        body: JSON.stringify(updateBody)
+                    });
+                    offer.active = newActive;
+                    ui.showToast(newActive ? (isAr ? 'تم تفعيل العرض بنجاح' : 'Offer enabled') : (isAr ? 'تم إيقاف العرض بنجاح' : 'Offer disabled'), 'success');
+                    await refreshOffers();
+                    renderActiveTab();
+                } catch (err) {
+                    console.error('Failed to toggle offer active status:', err);
+                    ui.showToast((isAr ? 'خطأ في تغيير حالة العرض' : 'Error toggling offer status') + ': ' + err.message, 'error');
+                    e.target.checked = !e.target.checked;
+                } finally {
+                    swInput.disabled = false;
+                }
+            });
+
+            swLabel.appendChild(swInput);
+            swLabel.appendChild(ui.createElement('span', ['switch-slider']));
+            activeToggleWrap.appendChild(swLabel);
+            card.appendChild(activeToggleWrap);
 
             // Status badges
             const badgeRow = ui.createElement('div', [], { style: 'display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.75rem;' });
@@ -2189,25 +2417,22 @@ function renderOffersTab(parent) {
             } else {
                 badgeRow.appendChild(ui.createElementWithText('span', t('offer_status_inactive'), ['badge', 'badge-danger']));
             }
-            if (offer.offerType === 1) {
-                badgeRow.appendChild(ui.createElementWithText('span', '🛠️ ' + t('offer_badge_editable'), ['badge', 'badge-secondary']));
-            } else {
-                badgeRow.appendChild(ui.createElementWithText('span', '🔒 ' + t('offer_badge_fixed'), ['badge', 'badge-secondary'], { style: 'background-color: #7f8c8d;' }));
-            }
             card.appendChild(badgeRow);
 
-            // Stats row
-            const statsRow = ui.createElement('div', [], { style: 'display: flex; gap: 1rem; border-top: 1px solid var(--border-color); padding-top: 0.75rem; margin-top: auto; font-size: 0.75rem; color: var(--text-muted);' });
-            const makeStatEl = (icon, val, label) => {
-                const el = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; align-items: center; gap: 0.15rem;' });
-                el.appendChild(ui.createElementWithText('span', `${icon} ${val}`, [], { style: 'font-weight: 700; font-size: 0.85rem; color: var(--text-primary);' }));
-                el.appendChild(ui.createElementWithText('span', label, [], {}));
-                return el;
-            };
-            statsRow.appendChild(makeStatEl('👆', offer.numberOfClicks, t('offer_clicks')));
-            statsRow.appendChild(makeStatEl('👁️', offer.numberOfWatches, t('offer_watches')));
-            statsRow.appendChild(makeStatEl('📋', offer.numberOfBooking, t('offer_bookings')));
-            card.appendChild(statsRow);
+            // Stats row (only rendered if returned by API)
+            if (offer.numberOfClicks !== undefined || offer.numberOfWatches !== undefined || offer.numberOfBooking !== undefined) {
+                const statsRow = ui.createElement('div', [], { style: 'display: flex; gap: 1rem; border-top: 1px solid var(--border-color); padding-top: 0.75rem; margin-top: auto; font-size: 0.75rem; color: var(--text-muted);' });
+                const makeStatEl = (icon, val, label) => {
+                    const el = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; align-items: center; gap: 0.15rem;' });
+                    el.appendChild(ui.createElementWithText('span', `${icon} ${val}`, [], { style: 'font-weight: 700; font-size: 0.85rem; color: var(--text-primary);' }));
+                    el.appendChild(ui.createElementWithText('span', label, [], {}));
+                    return el;
+                };
+                if (offer.numberOfClicks !== undefined) statsRow.appendChild(makeStatEl('👆', offer.numberOfClicks, t('offer_clicks')));
+                if (offer.numberOfWatches !== undefined) statsRow.appendChild(makeStatEl('👁️', offer.numberOfWatches, t('offer_watches')));
+                if (offer.numberOfBooking !== undefined) statsRow.appendChild(makeStatEl('📋', offer.numberOfBooking, t('offer_bookings')));
+                if (statsRow.children.length > 0) card.appendChild(statsRow);
+            }
 
             grid.appendChild(card);
         });
@@ -2513,6 +2738,9 @@ async function handleDeleteOffer(offer) {
    Tab 6: My Store Profile
    ========================================================================== */
 function renderProfileTab(parent) {
+    parent.replaceChildren();
+
+    const isAr = getLanguage() === 'ar';
     const getUserSettings = () => {
         const userJson = localStorage.getItem('qs_vendor_user');
         const u = JSON.parse(userJson || '{}');
@@ -2520,10 +2748,177 @@ function renderProfileTab(parent) {
     };
     const { user, settings } = getUserSettings();
 
-    const wrapper = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 1.5rem; max-width: 640px; width: 100%;' });
+    const wrapper = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 1.5rem; max-width: 820px; width: 100%; margin: 0 auto;' });
 
-    // ── Section 1: Basic Info ──────────────────────────────────────────────
-    const infoPanel = ui.createElement('div', ['glass-panel']);
+    // ── SECTION 1: Operational & Busy Status Controls (حالة التشغيل والانشغال) ──
+    const statusPanel = ui.createElement('div', ['glass-panel'], { style: 'padding: 1.5rem;' });
+    statusPanel.appendChild(ui.createElementWithText('h3', isAr ? '⚡ حالة التشغيل والتواجد المباشر' : '⚡ Live Operational & Busy Status', [], { style: 'font-size: 1.1rem; font-weight: 700; margin-bottom: 1.25rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border-color);' }));
+
+    const statusGrid = ui.createElement('div', [], { style: 'display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem;' });
+
+    // 1. Busy Status Toggle ("زرار المشغول")
+    const isBusyNow = !!(user.busy === true || user.busy === 1);
+    const busyBox = ui.createElement('div', [], { style: 'padding: 1.1rem 1.25rem; background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 8px; display: flex; flex-direction: column; justify-content: space-between; gap: 0.75rem;' });
+    
+    const busyHeader = ui.createElement('div', []);
+    busyHeader.appendChild(ui.createElementWithText('strong', isAr ? '🔥 حالة الانشغال (زرار المشغول)' : '🔥 Busy Status Toggle', [], { style: 'display: block; font-size: 0.95rem; color: #d97706; margin-bottom: 0.25rem;' }));
+    busyHeader.appendChild(ui.createElementWithText('span', isAr ? 'تفعيل وضع "مشغول" ينبه العملاء في تطبيق الهاتف بوجود ضغط طلبات.' : 'Marking as busy informs app customers of high order volume.', ['text-secondary'], { style: 'font-size: 0.8rem;' }));
+    busyBox.appendChild(busyHeader);
+
+    const bSwLabel = ui.createElement('label', ['switch-container'], { style: 'display: inline-flex; align-items: center; gap: 0.75rem; cursor: pointer;' });
+    const bSwInput = ui.createElement('input', ['switch-input'], {
+        type: 'checkbox',
+        checked: isBusyNow ? 'checked' : ''
+    });
+    const busyStatusText = ui.createElementWithText('span', isBusyNow ? (isAr ? '🟡 مشغول (Busy)' : '🟡 Busy') : (isAr ? '🟢 متاح (Available)' : '🟢 Available'), [], { style: 'font-weight: 700; font-size: 0.9rem;' });
+
+    bSwInput.addEventListener('change', async (e) => {
+        bSwInput.disabled = true;
+        try {
+            await toggleBusyStatus();
+            const updatedUser = JSON.parse(localStorage.getItem('qs_vendor_user') || '{}');
+            const nowBusy = !!(updatedUser.busy === true || updatedUser.busy === 1);
+            busyStatusText.textContent = nowBusy ? (isAr ? '🟡 مشغول (Busy)' : '🟡 Busy') : (isAr ? '🟢 متاح (Available)' : '🟢 Available');
+            ui.showToast(nowBusy ? (isAr ? 'تم تغيير الحالة إلى مشغول 🟡' : 'Status set to Busy') : (isAr ? 'تم إيقاف وضع المشغول 🟢' : 'Status set to Available'), 'success');
+        } catch (err) {
+            console.error('Failed to toggle busy status:', err);
+            ui.showToast((isAr ? 'خطأ في تغيير حالة الانشغال' : 'Error toggling busy status') + ': ' + err.message, 'error');
+            e.target.checked = !e.target.checked;
+        } finally {
+            bSwInput.disabled = false;
+        }
+    });
+
+    const bSlider = ui.createElement('span', ['switch-slider']);
+    bSwLabel.appendChild(bSwInput);
+    bSwLabel.appendChild(bSlider);
+    bSwLabel.appendChild(busyStatusText);
+    busyBox.appendChild(bSwLabel);
+    statusGrid.appendChild(busyBox);
+
+    statusPanel.appendChild(statusGrid);
+    wrapper.appendChild(statusPanel);
+
+    // ── SECTION 2: Official Working Hours Schedule (جدول مواعيد العمل والدوام) ──
+    const schedPanel = ui.createElement('div', ['glass-panel'], { style: 'padding: 1.5rem;' });
+    
+    const schedHeader = ui.createElement('div', [], { style: 'display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.25rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border-color);' });
+    
+    const schedTitleBox = ui.createElement('div', []);
+    schedTitleBox.appendChild(ui.createElementWithText('h3', isAr ? '🕒 مواعيد وأوقات العمل الرسمية' : '🕒 Official Working Hours Schedule', [], { style: 'margin: 0 0 0.25rem 0; font-size: 1.1rem; font-weight: 700;' }));
+    schedTitleBox.appendChild(ui.createElementWithText('p', isAr ? 'تحديد ساعات العمل الرسمية وأيام الدوام الأسبوعية للمتجر' : 'Define official operating hours and weekly working days', ['text-secondary'], { style: 'margin: 0; font-size: 0.82rem;' }));
+    schedHeader.appendChild(schedTitleBox);
+
+    const addSchedBtn = ui.createElementWithText('button', t('sched_add_btn'), ['btn', 'btn-primary'], { style: 'display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 600; padding: 0.5rem 1rem; font-size: 0.85rem;' });
+    addSchedBtn.addEventListener('click', () => showScheduleModal(null, () => renderProfileTab(parent)));
+    schedHeader.appendChild(addSchedBtn);
+
+    schedPanel.appendChild(schedHeader);
+
+    const gridContainer = ui.createElement('div', [], { style: 'display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; width: 100%;' });
+
+    const renderGridContent = () => {
+        gridContainer.replaceChildren();
+
+        if (schedules.length === 0) {
+            const emptyCard = ui.createElement('div', [], { style: 'grid-column: 1 / -1; text-align: center; padding: 2.5rem 1rem; background: rgba(255,255,255,0.03); border: 1px dashed var(--border-color); border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.75rem;' });
+            emptyCard.appendChild(ui.createElementWithText('div', '🕒', [], { style: 'font-size: 2.5rem;' }));
+            emptyCard.appendChild(ui.createElementWithText('h4', t('sched_empty_title'), [], { style: 'margin: 0; font-size: 1.05rem; font-weight: 700;' }));
+            emptyCard.appendChild(ui.createElementWithText('p', t('sched_empty_sub'), ['text-secondary'], { style: 'margin: 0; max-width: 400px; font-size: 0.82rem;' }));
+            
+            const createBtn = ui.createElementWithText('button', t('sched_add_btn'), ['btn', 'btn-primary'], { style: 'margin-top: 0.25rem;' });
+            createBtn.addEventListener('click', () => showScheduleModal(null, () => renderProfileTab(parent)));
+            emptyCard.appendChild(createBtn);
+
+            gridContainer.appendChild(emptyCard);
+            return;
+        }
+
+        schedules.forEach((item) => {
+            const card = ui.createElement('div', [], { style: 'padding: 1.1rem; background: rgba(255,255,255,0.04); border: 1px solid var(--border-color); border-radius: 8px; display: flex; flex-direction: column; gap: 0.85rem; position: relative; border-top: 4px solid ' + (item.type === 1 ? '#2ed573' : '#ff4757') + ';' });
+
+            const cardHeader = ui.createElement('div', [], { style: 'display: flex; align-items: center; justify-content: space-between;' });
+            
+            const badgeType = item.type === 1
+                ? ui.createElementWithText('span', t('sched_type_working'), [], { style: 'background: rgba(46, 213, 115, 0.15); color: #2ed573; padding: 0.2rem 0.55rem; border-radius: 20px; font-size: 0.75rem; font-weight: 700;' })
+                : ui.createElementWithText('span', t('sched_type_closed'), [], { style: 'background: rgba(255, 71, 87, 0.15); color: #ff4757; padding: 0.2rem 0.55rem; border-radius: 20px; font-size: 0.75rem; font-weight: 700;' });
+            cardHeader.appendChild(badgeType);
+
+            const actionsBox = ui.createElement('div', [], { style: 'display: flex; gap: 0.4rem;' });
+            
+            const editBtn = ui.createElementWithText('button', '✏️', ['btn', 'btn-secondary', 'btn-sm'], { title: t('sched_edit_title'), style: 'padding: 0.25rem 0.5rem;' });
+            editBtn.addEventListener('click', () => showScheduleModal(item, () => renderProfileTab(parent)));
+            actionsBox.appendChild(editBtn);
+
+            const delBtn = ui.createElementWithText('button', '🗑️', ['btn', 'btn-danger', 'btn-sm'], { title: 'Delete', style: 'padding: 0.25rem 0.5rem;' });
+            delBtn.addEventListener('click', async () => {
+                if (confirm(t('sched_delete_confirm'))) {
+                    delBtn.disabled = true;
+                    try {
+                        await deleteScheduleApi(item.id);
+                        ui.showToast(isAr ? 'تم حذف الموعد بنجاح' : 'Schedule deleted successfully', 'success');
+                        await refreshSchedules();
+                        renderProfileTab(parent);
+                    } catch (e) {
+                        console.error('Delete schedule error:', e);
+                        ui.showToast(t('error_generic') + ': ' + e.message, 'error');
+                        delBtn.disabled = false;
+                    }
+                }
+            });
+            actionsBox.appendChild(delBtn);
+
+            cardHeader.appendChild(actionsBox);
+            card.appendChild(cardHeader);
+
+            const timeBox = ui.createElement('div', [], { style: 'display: flex; align-items: center; gap: 0.5rem; background: rgba(255,255,255,0.05); padding: 0.6rem 0.75rem; border-radius: 6px;' });
+            timeBox.appendChild(ui.createElementWithText('span', '⏰', [], { style: 'font-size: 1.1rem;' }));
+            timeBox.appendChild(ui.createElementWithText('span', `${formatScheduleTime(item.startTime)} — ${formatScheduleTime(item.endTime)}`, [], { style: 'font-weight: 700; font-size: 0.98rem;' }));
+            card.appendChild(timeBox);
+
+            const daysWrapper = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem;' });
+            daysWrapper.appendChild(ui.createElementWithText('span', t('sched_days_label') + ':', ['text-secondary'], { style: 'font-size: 0.78rem;' }));
+
+            const daysContainer = ui.createElement('div', [], { style: 'display: flex; flex-wrap: wrap; gap: 0.3rem;' });
+            const activeDays = Array.isArray(item.daysOfWeek) ? item.daysOfWeek : [];
+            const orderedDays = [6, 0, 1, 2, 3, 4, 5];
+            const filteredActiveDays = orderedDays.filter(d => activeDays.includes(d));
+
+            if (filteredActiveDays.length === 7) {
+                const allPill = ui.createElementWithText('span', isAr ? '🌍 طوال أيام الأسبوع' : '🌍 All Week Days', [], {
+                    style: 'background: var(--color-primary, #00796B); color: #ffffff; padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.75rem; font-weight: 600;'
+                });
+                daysContainer.appendChild(allPill);
+            } else if (filteredActiveDays.length > 0) {
+                filteredActiveDays.forEach((d) => {
+                    const dayPill = ui.createElementWithText('span', getDayName(d), [], {
+                        style: 'background: var(--color-primary, #00796B); color: #ffffff; padding: 0.15rem 0.5rem; border-radius: 12px; font-size: 0.72rem; font-weight: 600;'
+                    });
+                    daysContainer.appendChild(dayPill);
+                });
+            } else {
+                const emptyPill = ui.createElementWithText('span', isAr ? 'لا توجد أيام محددة' : 'No days selected', ['text-secondary'], {
+                    style: 'font-size: 0.75rem; font-style: italic;'
+                });
+                daysContainer.appendChild(emptyPill);
+            }
+
+            daysWrapper.appendChild(daysContainer);
+            card.appendChild(daysWrapper);
+
+            gridContainer.appendChild(card);
+        });
+    };
+
+    schedPanel.appendChild(gridContainer);
+    wrapper.appendChild(schedPanel);
+
+    // Fetch Live Schedules from API
+    ui.renderShimmerGrid(gridContainer);
+    refreshSchedules().then(() => renderGridContent());
+
+    // ── SECTION 3: Basic Profile Information (البيانات الأساسية للمتجر) ──
+    const infoPanel = ui.createElement('div', ['glass-panel'], { style: 'padding: 1.5rem;' });
     infoPanel.appendChild(ui.createElementWithText('h3', `🛒 ${t('rest_profile_section_info')}`, [], { style: 'font-size: 1.05rem; font-weight: 700; margin-bottom: 1.25rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border-color);' }));
 
     const photoRow = ui.createElement('div', [], { style: 'display: flex; align-items: center; gap: 1.25rem; margin-bottom: 1.25rem;' });
@@ -2552,7 +2947,7 @@ function renderProfileTab(parent) {
     photoBtnGroup.appendChild(ui.createElementWithText('label', t('rest_profile_photo_label'), [], { style: 'font-size: 0.85rem; font-weight: 600;' }));
     photoBtnGroup.appendChild(photoBtn);
     photoBtnGroup.appendChild(photoInput);
-    const imgHintText = getLanguage() === 'ar' ? '📷 الأبعاد الموصى بها: 800 × 500 بكسل (نسبة 16:9 أفقية) لضمان وضوح الصورة كغلاف للشاشة الرئيسية وشاشة المتجر.' : '📷 Recommended dimensions: 800 × 500 px (16:9 landscape) for optimal store banner & card quality.';
+    const imgHintText = isAr ? '📷 الأبعاد الموصى بها: 800 × 500 بكسل (نسبة 16:9 أفقية) لضمان وضوح الصورة كغلاف للشاشة الرئيسية وشاشة المتجر.' : '📷 Recommended dimensions: 800 × 500 px (16:9 landscape) for optimal store banner & card quality.';
     const imgHint = ui.createElementWithText('span', imgHintText, [], { style: 'font-size: 0.75rem; color: var(--text-muted); display: block; margin-top: 0.25rem;' });
     photoBtnGroup.appendChild(imgHint);
     photoRow.appendChild(photoPreview);
@@ -2561,26 +2956,24 @@ function renderProfileTab(parent) {
 
     const nameWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 1rem;' });
     nameWrap.appendChild(ui.createElementWithText('label', t('rest_profile_name_label'), [], { style: 'font-size: 0.85rem; font-weight: 600;' }));
-    const nameIn = ui.createElement('input', ['search-input'], { type: 'text', value: user.name || '', placeholder: getLanguage() === 'ar' ? 'اسم السوبر ماركت' : 'Supermarket name' });
+    const nameIn = ui.createElement('input', ['search-input'], { type: 'text', value: user.name || '', placeholder: isAr ? 'اسم السوبر ماركت' : 'Supermarket name' });
     nameWrap.appendChild(nameIn);
     infoPanel.appendChild(nameWrap);
 
     const descWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 1.25rem;' });
     descWrap.appendChild(ui.createElementWithText('label', t('rest_profile_desc_label'), [], { style: 'font-size: 0.85rem; font-weight: 600;' }));
     const descIn = ui.createElement('textarea', ['search-input'], { placeholder: t('rest_profile_desc_placeholder'), style: 'min-height: 80px; font-family: inherit; resize: vertical;' });
-    descIn.value = settings.description || '';
+    descIn.value = user.description || '';
     descWrap.appendChild(descIn);
     infoPanel.appendChild(descWrap);
 
-    // Main Category field for Market/Store
     const catWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 1.25rem;' });
-    catWrap.appendChild(ui.createElementWithText('label', getLanguage() === 'ar' ? 'القسم الرئيسي للمتجر 🛒' : 'Main Store Category 🛒', [], { style: 'font-size: 0.85rem; font-weight: 600;' }));
+    catWrap.appendChild(ui.createElementWithText('label', isAr ? 'القسم الرئيسي للمتجر 🛒' : 'Main Store Category 🛒', [], { style: 'font-size: 0.85rem; font-weight: 600;' }));
     const catSelect = ui.createElement('select', ['select-input'], { style: 'width: 100%; font-size: 0.9rem; padding: 0.6rem;' });
-    catSelect.innerHTML = `<option value="">${getLanguage() === 'ar' ? '⏳ جاري تحميل الأقسام...' : '⏳ Loading categories...'}</option>`;
+    catSelect.innerHTML = `<option value="">${isAr ? '⏳ جاري تحميل الأقسام...' : '⏳ Loading categories...'}</option>`;
     catWrap.appendChild(catSelect);
     infoPanel.appendChild(catWrap);
 
-    // Fetch main categories for Markets (userRole = 1 or 4)
     (async () => {
         try {
             const res = await apiFetch('/api/v1/main-categories', {
@@ -2610,7 +3003,7 @@ function renderProfileTab(parent) {
             catSelect.replaceChildren();
             if (displayCats.length === 0) {
                 const opt = ui.createElement('option', [], { value: '' });
-                opt.textContent = getLanguage() === 'ar' ? 'لا توجد أقسام متاحة' : 'No categories available';
+                opt.textContent = isAr ? 'لا توجد أقسام متاحة' : 'No categories available';
                 catSelect.appendChild(opt);
                 return;
             }
@@ -2623,7 +3016,7 @@ function renderProfileTab(parent) {
             });
         } catch (err) {
             console.error('Failed to load main categories:', err);
-            catSelect.innerHTML = `<option value="">${getLanguage() === 'ar' ? '❌ فشل تحميل الأقسام' : '❌ Failed to load categories'}</option>`;
+            catSelect.innerHTML = `<option value="">${isAr ? '❌ فشل تحميل الأقسام' : '❌ Failed to load categories'}</option>`;
         }
     })();
 
@@ -2639,16 +3032,17 @@ function renderProfileTab(parent) {
         if (!name) { nameIn.style.borderColor = 'var(--color-danger)'; nameIn.focus(); return; }
         nameIn.style.borderColor = '';
         saveInfoBtn.disabled = true;
-        saveInfoBtn.textContent = getLanguage() === 'ar' ? 'جارٍ الحفظ...' : 'Saving...';
+        saveInfoBtn.textContent = isAr ? 'جارٍ الحفظ...' : 'Saving...';
         const newRawDesc = descIn.value.trim();
         const selectedCatId = catSelect.value ? parseInt(catSelect.value, 10) : null;
         try {
-            const body = { name, photo: currentPhoto, description: newRawDesc };
+            const currentBusy = bSwInput ? bSwInput.checked : !!(user.busy === true || user.busy === 1);
+            const body = { name, photo: currentPhoto, description: newRawDesc, busy: currentBusy };
             if (selectedCatId) body.categoryId = selectedCatId;
 
             await apiFetch('/api/v1/users/update-profile', { method: 'PUT', body: JSON.stringify(body) });
             const profile = JSON.parse(localStorage.getItem('qs_vendor_user') || '{}');
-            profile.name = name; profile.photo = currentPhoto; profile.description = newRawDesc;
+            profile.name = name; profile.photo = currentPhoto; profile.description = newRawDesc; profile.busy = currentBusy;
             if (selectedCatId) profile.categoryId = selectedCatId;
             localStorage.setItem('qs_vendor_user', JSON.stringify(profile));
             updateHeaderVendorName();
@@ -2663,77 +3057,8 @@ function renderProfileTab(parent) {
             saveInfoBtn.textContent = t('rest_profile_save_btn');
         }
     });
+
     wrapper.appendChild(infoPanel);
-
-    // ── Section 2: Working Hours & Closure ────────────────────────────────
-    const schedPanel = ui.createElement('div', ['glass-panel']);
-    schedPanel.appendChild(ui.createElementWithText('h3', `🕒 ${t('rest_profile_section_sched')}`, [], { style: 'font-size: 1.05rem; font-weight: 700; margin-bottom: 1.25rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border-color);' }));
-
-    // Activity Toggle — uses PATCH /api/v1/users/toggle-activity/{userId}
-    const closureBox = ui.createElement('div', [], { style: 'padding: 1rem 1.25rem; background: rgba(255, 71, 87, 0.05); border: 1px solid rgba(255, 71, 87, 0.2); border-radius: 8px; margin-bottom: 1.5rem;' });
-    closureBox.appendChild(ui.createElementWithText('p', t('rest_sched_closure_title'), [], { style: 'font-weight: 600; font-size: 0.9rem; color: var(--color-danger); margin-bottom: 0.5rem;' }));
-    closureBox.appendChild(ui.createElementWithText('p', t('rest_sched_closure_desc'), ['text-secondary'], { style: 'font-size: 0.8rem; margin-bottom: 1rem;' }));
-
-    const mktProfile = JSON.parse(localStorage.getItem('qs_vendor_user') || '{}');
-    const isMktActive = !(mktProfile.active === 0 || mktProfile.active === false);
-
-    const cSwLabel = ui.createElement('label', ['switch-container']);
-    const cSwInput = ui.createElement('input', ['switch-input', 'switch-danger'], { type: 'checkbox', checked: !isMktActive ? 'checked' : '' });
-    cSwInput.addEventListener('change', async (e) => {
-        cSwInput.disabled = true;
-        try {
-            await toggleActivityStatus();
-            const updatedUser = JSON.parse(localStorage.getItem('qs_vendor_user') || '{}');
-            const nowClosed = (updatedUser.active === 0 || updatedUser.active === false);
-            cSwLabel.querySelector('span:last-child').textContent = nowClosed ? t('rest_sched_closure_on') : t('rest_sched_closure_off');
-        } catch (err) {
-            ui.showToast(t('error_generic') + ': ' + err.message, 'error');
-            e.target.checked = !e.target.checked;
-        } finally { cSwInput.disabled = false; }
-    });
-    cSwLabel.appendChild(cSwInput);
-    cSwLabel.appendChild(ui.createElement('span', ['switch-slider']));
-    cSwLabel.appendChild(ui.createElementWithText('span', !isMktActive ? t('rest_sched_closure_on') : t('rest_sched_closure_off'), [], { style: 'font-weight: 600;' }));
-    closureBox.appendChild(cSwLabel);
-    schedPanel.appendChild(closureBox);
-
-    const daysWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 1rem;' });
-    daysWrap.appendChild(ui.createElementWithText('label', t('rest_sched_hours_days_label'), [], { style: 'font-size: 0.85rem; font-weight: 600;' }));
-    const selectDays = ui.createElement('select', ['select-input']);
-    selectDays.appendChild(ui.createElementWithText('option', t('rest_sched_hours_days_opt_standard'), [], { value: 'Sat - Thu' }));
-    selectDays.appendChild(ui.createElementWithText('option', t('rest_sched_hours_days_opt_everyday'), [], { value: 'Everyday' }));
-    selectDays.value = settings.days || 'Sat - Thu';
-    daysWrap.appendChild(selectDays);
-    schedPanel.appendChild(daysWrap);
-
-    const hoursWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 1.25rem;' });
-    hoursWrap.appendChild(ui.createElementWithText('label', t('rest_sched_hours_window_label'), [], { style: 'font-size: 0.85rem; font-weight: 600;' }));
-    const inputHours = ui.createElement('input', ['search-input'], { type: 'text', value: settings.hours || '', placeholder: 'e.g. 8:00 AM - 11:00 PM' });
-    hoursWrap.appendChild(inputHours);
-    schedPanel.appendChild(hoursWrap);
-
-    const saveSchedBtn = ui.createElementWithText('button', t('rest_sched_hours_btn'), ['btn', 'btn-primary']);
-    const schedFeedback = ui.createElement('span', [], { style: 'font-size: 0.85rem; margin-left: 1rem;' });
-    const schedFooter = ui.createElement('div', [], { style: 'display: flex; align-items: center;' });
-    schedFooter.appendChild(saveSchedBtn);
-    schedFooter.appendChild(schedFeedback);
-    schedPanel.appendChild(schedFooter);
-
-    saveSchedBtn.addEventListener('click', async () => {
-        const freshNow = getUserSettings();
-        saveSchedBtn.disabled = true;
-        try {
-            await updateUserSettings(selectDays.value, inputHours.value, freshNow.settings.description);
-            schedFeedback.textContent = '✅ ' + t('rest_sched_hours_saved');
-            schedFeedback.style.color = 'var(--color-success)';
-            setTimeout(() => { schedFeedback.textContent = ''; }, 2500);
-        } catch (err) {
-            schedFeedback.textContent = '❌ ' + (t('error_generic') + ': ' + err.message);
-            schedFeedback.style.color = 'var(--color-danger)';
-        } finally { saveSchedBtn.disabled = false; }
-    });
-
-    wrapper.appendChild(schedPanel);
     parent.appendChild(wrapper);
 }
 
@@ -3605,6 +3930,432 @@ async function openDashboardChat(recipientId, recipientName) {
             }
         ]
     );
+}
+
+/* ==========================================================================
+   Tab: Working Hours Schedule (REST API /api/v1/schedules)
+   ========================================================================== */
+function normalizeSchedule(raw) {
+    if (!raw) return null;
+    const id = raw.id != null ? Number(raw.id) : (raw.Id != null ? Number(raw.Id) : 0);
+    const startTime = (raw.startTime || raw.StartTime || '09:00:00').toString();
+    const endTime = (raw.endTime || raw.EndTime || '23:00:00').toString();
+    const type = raw.type != null ? Number(raw.type) : (raw.Type != null ? Number(raw.Type) : 1);
+
+    let days = [];
+    const rawDays = raw.daysOfWeek ?? raw.DaysOfWeek;
+    if (Array.isArray(rawDays)) {
+        days = rawDays.map(d => Number(d)).filter(d => !isNaN(d) && d >= 0 && d <= 6);
+    } else if (typeof rawDays === 'string') {
+        try {
+            const parsed = JSON.parse(rawDays);
+            if (Array.isArray(parsed)) {
+                days = parsed.map(d => Number(d)).filter(d => !isNaN(d) && d >= 0 && d <= 6);
+            }
+        } catch (_) {}
+    }
+
+    days = Array.from(new Set(days)).sort((a, b) => a - b);
+
+    return {
+        id,
+        startTime,
+        endTime,
+        type,
+        daysOfWeek: days,
+        creatorId: raw.creatorId ?? raw.CreatorId ?? null
+    };
+}
+
+async function refreshSchedules() {
+    try {
+        const userJson = localStorage.getItem('qs_vendor_user');
+        let creatorId = null;
+        try {
+            if (userJson) {
+                const u = JSON.parse(userJson);
+                creatorId = u.id != null ? Number(u.id) : null;
+            }
+        } catch (_) {}
+
+        const bodyObj = { pageNumber: 1, pageSize: 100, enablePagination: false };
+        if (creatorId) {
+            bodyObj.filters = { creatorId: creatorId };
+        }
+
+        const res = await apiClient.fetch('/api/v1/schedules', {
+            method: 'PATCH',
+            body: JSON.stringify(bodyObj)
+        });
+        
+        let list = [];
+        if (res) {
+            if (Array.isArray(res)) {
+                list = res;
+            } else if (res.result) {
+                if (Array.isArray(res.result)) list = res.result;
+                else if (Array.isArray(res.result.items)) list = res.result.items;
+                else if (Array.isArray(res.result.data)) list = res.result.data;
+            } else if (Array.isArray(res.data)) {
+                list = res.data;
+            } else if (Array.isArray(res.items)) {
+                list = res.items;
+            }
+        }
+
+        schedules = list.map(normalizeSchedule).filter(Boolean);
+        schedulesLoaded = true;
+        return schedules;
+    } catch (err) {
+        console.error('Failed to fetch schedules:', err);
+        schedules = [];
+        schedulesLoaded = true;
+        return [];
+    }
+}
+
+async function createSchedule(reqData) {
+    return await apiClient.fetch('/api/v1/schedules', {
+        method: 'POST',
+        body: JSON.stringify(reqData)
+    });
+}
+
+async function updateSchedule(reqData) {
+    return await apiClient.fetch('/api/v1/schedules', {
+        method: 'PUT',
+        body: JSON.stringify(reqData)
+    });
+}
+
+async function deleteScheduleApi(id) {
+    return await apiClient.fetch(`/api/v1/schedules/${id}`, {
+        method: 'DELETE'
+    });
+}
+
+function formatScheduleTime(timeStr) {
+    if (!timeStr) return '--:--';
+    const parts = timeStr.toString().split(':');
+    if (parts.length < 2) return timeStr;
+    let h = parseInt(parts[0], 10);
+    const m = parts[1];
+    const ampm = h >= 12 ? (getLanguage() === 'ar' ? 'م' : 'PM') : (getLanguage() === 'ar' ? 'ص' : 'AM');
+    h = h % 12 || 12;
+    const formattedH = h < 10 ? `0${h}` : `${h}`;
+    return `${formattedH}:${m} ${ampm}`;
+}
+
+function getDayName(dayNum) {
+    return t(`sched_day_${dayNum}`) || `Day ${dayNum}`;
+}
+
+function renderScheduleTab(parent) {
+    parent.replaceChildren();
+
+    const isAr = getLanguage() === 'ar';
+    const mainWrapper = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 1.5rem; width: 100%;' });
+
+    // Top Controls Bar
+    const topBar = ui.createElement('div', ['glass-panel'], { style: 'display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; padding: 1.25rem 1.5rem;' });
+    
+    const titleBlock = ui.createElement('div', []);
+    titleBlock.appendChild(ui.createElementWithText('h3', t('mkt_section_schedule_title'), [], { style: 'margin: 0 0 0.25rem 0; font-size: 1.2rem; color: var(--color-text-main); font-weight: 700;' }));
+    titleBlock.appendChild(ui.createElementWithText('p', t('mkt_section_schedule_sub'), ['text-secondary'], { style: 'margin: 0; font-size: 0.85rem;' }));
+    topBar.appendChild(titleBlock);
+
+    const addBtn = ui.createElementWithText('button', t('sched_add_btn'), ['btn', 'btn-primary'], { style: 'display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 600; padding: 0.6rem 1.2rem; font-size: 0.9rem;' });
+    addBtn.addEventListener('click', () => showScheduleModal(null, () => renderScheduleTab(parent)));
+    topBar.appendChild(addBtn);
+
+    mainWrapper.appendChild(topBar);
+
+    // Schedule Cards Grid Container
+    const gridContainer = ui.createElement('div', [], { style: 'display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1.25rem; width: 100%;' });
+
+    const renderGridContent = () => {
+        gridContainer.replaceChildren();
+
+        if (schedules.length === 0) {
+            const emptyCard = ui.createElement('div', ['glass-panel'], { style: 'grid-column: 1 / -1; text-align: center; padding: 3rem 1.5rem; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem;' });
+            emptyCard.appendChild(ui.createElementWithText('div', '🕒', [], { style: 'font-size: 3rem; margin-bottom: 0.5rem;' }));
+            emptyCard.appendChild(ui.createElementWithText('h4', t('sched_empty_title'), [], { style: 'margin: 0; font-size: 1.15rem; font-weight: 700;' }));
+            emptyCard.appendChild(ui.createElementWithText('p', t('sched_empty_sub'), ['text-secondary'], { style: 'margin: 0; max-width: 420px; font-size: 0.88rem;' }));
+            
+            const createBtn = ui.createElementWithText('button', t('sched_add_btn'), ['btn', 'btn-primary'], { style: 'margin-top: 0.5rem;' });
+            createBtn.addEventListener('click', () => showScheduleModal(null, () => renderScheduleTab(parent)));
+            emptyCard.appendChild(createBtn);
+
+            gridContainer.appendChild(emptyCard);
+            return;
+        }
+
+        schedules.forEach((item) => {
+            const card = ui.createElement('div', ['glass-panel'], { style: 'padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem; position: relative; border-top: 4px solid ' + (item.type === 1 ? '#2ed573' : '#ff4757') + ';' });
+
+            // Card Header (Badge + Actions)
+            const cardHeader = ui.createElement('div', [], { style: 'display: flex; align-items: center; justify-content: space-between;' });
+            
+            const badgeType = item.type === 1
+                ? ui.createElementWithText('span', t('sched_type_working'), [], { style: 'background: rgba(46, 213, 115, 0.15); color: #2ed573; padding: 0.25rem 0.65rem; border-radius: 20px; font-size: 0.78rem; font-weight: 700;' })
+                : ui.createElementWithText('span', t('sched_type_closed'), [], { style: 'background: rgba(255, 71, 87, 0.15); color: #ff4757; padding: 0.25rem 0.65rem; border-radius: 20px; font-size: 0.78rem; font-weight: 700;' });
+            cardHeader.appendChild(badgeType);
+
+            const actionsBox = ui.createElement('div', [], { style: 'display: flex; gap: 0.5rem;' });
+            
+            const editBtn = ui.createElementWithText('button', '✏️', ['btn', 'btn-secondary', 'btn-sm'], { title: t('sched_edit_title'), style: 'padding: 0.35rem 0.6rem;' });
+            editBtn.addEventListener('click', () => showScheduleModal(item, () => renderScheduleTab(parent)));
+            actionsBox.appendChild(editBtn);
+
+            const delBtn = ui.createElementWithText('button', '🗑️', ['btn', 'btn-danger', 'btn-sm'], { title: 'Delete', style: 'padding: 0.35rem 0.6rem;' });
+            delBtn.addEventListener('click', async () => {
+                if (confirm(t('sched_delete_confirm'))) {
+                    delBtn.disabled = true;
+                    try {
+                        await deleteScheduleApi(item.id);
+                        ui.showToast(isAr ? 'تم حذف الموعد بنجاح' : 'Schedule deleted successfully', 'success');
+                        await refreshSchedules();
+                        renderScheduleTab(parent);
+                    } catch (e) {
+                        console.error('Delete schedule error:', e);
+                        ui.showToast(t('error_generic') + ': ' + e.message, 'error');
+                        delBtn.disabled = false;
+                    }
+                }
+            });
+            actionsBox.appendChild(delBtn);
+
+            cardHeader.appendChild(actionsBox);
+            card.appendChild(cardHeader);
+
+            // Time Window display
+            const timeBox = ui.createElement('div', [], { style: 'display: flex; align-items: center; gap: 0.6rem; background: rgba(255,255,255,0.05); padding: 0.75rem; border-radius: 6px;' });
+            timeBox.appendChild(ui.createElementWithText('span', '⏰', [], { style: 'font-size: 1.2rem;' }));
+            timeBox.appendChild(ui.createElementWithText('span', `${formatScheduleTime(item.startTime)} — ${formatScheduleTime(item.endTime)}`, [], { style: 'font-weight: 700; font-size: 1.05rem; letter-spacing: 0.3px;' }));
+            card.appendChild(timeBox);
+
+            // Operating Days Pills (Show only active days)
+            const daysWrapper = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.4rem;' });
+            daysWrapper.appendChild(ui.createElementWithText('span', t('sched_days_label') + ':', ['text-secondary'], { style: 'font-size: 0.8rem;' }));
+
+            const daysContainer = ui.createElement('div', [], { style: 'display: flex; flex-wrap: wrap; gap: 0.35rem;' });
+            
+            const activeDays = Array.isArray(item.daysOfWeek) ? item.daysOfWeek : [];
+            const orderedDays = [6, 0, 1, 2, 3, 4, 5];
+            const filteredActiveDays = orderedDays.filter(d => activeDays.includes(d));
+
+            if (filteredActiveDays.length === 7) {
+                const allPill = ui.createElementWithText('span', isAr ? '🌍 طوال أيام الأسبوع' : '🌍 All Week Days', [], {
+                    style: 'background: var(--color-primary, #00796B); color: #ffffff; padding: 0.25rem 0.65rem; border-radius: 12px; font-size: 0.78rem; font-weight: 600;'
+                });
+                daysContainer.appendChild(allPill);
+            } else if (filteredActiveDays.length > 0) {
+                filteredActiveDays.forEach((d) => {
+                    const dayPill = ui.createElementWithText('span', getDayName(d), [], {
+                        style: 'background: var(--color-primary, #00796B); color: #ffffff; padding: 0.25rem 0.6rem; border-radius: 12px; font-size: 0.78rem; font-weight: 600;'
+                    });
+                    daysContainer.appendChild(dayPill);
+                });
+            } else {
+                const emptyPill = ui.createElementWithText('span', isAr ? 'لا توجد أيام محددة' : 'No days selected', ['text-secondary'], {
+                    style: 'font-size: 0.78rem; font-style: italic;'
+                });
+                daysContainer.appendChild(emptyPill);
+            }
+
+            daysWrapper.appendChild(daysContainer);
+            card.appendChild(daysWrapper);
+
+            gridContainer.appendChild(card);
+        });
+    };
+
+    mainWrapper.appendChild(gridContainer);
+    parent.appendChild(mainWrapper);
+
+    // Fetch Live Schedules from API
+    ui.renderShimmerGrid(gridContainer);
+    refreshSchedules().then(() => renderGridContent());
+}
+
+function showScheduleModal(existingItem = null, onSuccessCallback = null) {
+    const isAr = getLanguage() === 'ar';
+    const normExisting = existingItem ? normalizeSchedule(existingItem) : null;
+    const isEdit = Boolean(normExisting && normExisting.id);
+
+    const titleStr = isEdit ? (isAr ? '✏️ تعديل الموعد' : '✏️ Edit Schedule') : (isAr ? '➕ إضافة موعد جديد' : '➕ Add New Schedule');
+    const modalContent = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 1.25rem; width: 100%; max-width: 480px;' });
+
+    // Helpful Tip Banner
+    const tipBox = ui.createElement('div', [], { style: 'padding: 0.75rem 1rem; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 8px; font-size: 0.8rem; color: var(--color-text-secondary, #94a3b8); line-height: 1.4;' });
+    tipBox.textContent = isAr 
+        ? '💡 ملحوظة: يمكنك تحديد الأيام التي تشترك في نفس ساعات العمل في ريكورد واحد. وإذا كانت هناك أيام أخرى بمواعيد مختلفة (مثل الجمعة)، قم بإضافتها في ريكورد جديد منفصل.'
+        : '💡 Note: Select all days sharing identical working hours in a single record. For days with different operating hours, save them as separate schedule records.';
+    modalContent.appendChild(tipBox);
+
+    // 1. Schedule Type
+    const typeGroup = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.4rem;' });
+    typeGroup.appendChild(ui.createElementWithText('label', t('sched_type_label'), [], { style: 'font-size: 0.85rem; font-weight: 600;' }));
+    
+    const typeSelect = ui.createElement('select', ['select-input']);
+    const optWorking = ui.createElementWithText('option', t('sched_type_working'), [], { value: '1' });
+    const optClosed = ui.createElementWithText('option', t('sched_type_closed'), [], { value: '2' });
+    typeSelect.appendChild(optWorking);
+    typeSelect.appendChild(optClosed);
+    typeSelect.value = normExisting ? String(normExisting.type || 1) : '1';
+    typeGroup.appendChild(typeSelect);
+    modalContent.appendChild(typeGroup);
+
+    // 2. Days Multi-Select
+    let selectedDays = normExisting && Array.isArray(normExisting.daysOfWeek) && normExisting.daysOfWeek.length > 0
+        ? [...normExisting.daysOfWeek]
+        : [6, 0, 1, 2, 3, 4, 5];
+
+    const daysGroup = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.5rem;' });
+    
+    const daysHeader = ui.createElement('div', [], { style: 'display: flex; align-items: center; justify-content: space-between;' });
+    daysHeader.appendChild(ui.createElementWithText('label', t('sched_days_label'), [], { style: 'font-size: 0.85rem; font-weight: 600;' }));
+    
+    const quickActions = ui.createElement('div', [], { style: 'display: flex; gap: 0.4rem;' });
+    
+    const btnAll = ui.createElementWithText('button', t('sched_select_all'), ['btn', 'btn-link', 'btn-xs'], { type: 'button', style: 'font-size: 0.75rem; text-decoration: underline;' });
+    btnAll.addEventListener('click', () => {
+        selectedDays = [6, 0, 1, 2, 3, 4, 5];
+        updateDaysUI();
+    });
+    quickActions.appendChild(btnAll);
+
+    const btnWeekdays = ui.createElementWithText('button', t('sched_select_weekdays'), ['btn', 'btn-link', 'btn-xs'], { type: 'button', style: 'font-size: 0.75rem; text-decoration: underline;' });
+    btnWeekdays.addEventListener('click', () => {
+        selectedDays = [6, 0, 1, 2, 3, 4];
+        updateDaysUI();
+    });
+    quickActions.appendChild(btnWeekdays);
+
+    daysHeader.appendChild(quickActions);
+    daysGroup.appendChild(daysHeader);
+
+    const daysPillsContainer = ui.createElement('div', [], { style: 'display: flex; flex-wrap: wrap; gap: 0.4rem;' });
+    
+    const orderedDays = [6, 0, 1, 2, 3, 4, 5];
+    const updateDaysUI = () => {
+        daysPillsContainer.replaceChildren();
+        orderedDays.forEach(d => {
+            const isSel = selectedDays.includes(d);
+            const pill = ui.createElementWithText('button', getDayName(d), [], {
+                type: 'button',
+                style: isSel
+                    ? 'background: var(--color-primary, #00796B); color: #ffffff; border: 1px solid var(--color-primary); border-radius: 20px; padding: 0.35rem 0.75rem; font-size: 0.82rem; font-weight: 600; cursor: pointer; transition: all 0.2s;'
+                    : 'background: rgba(255,255,255,0.06); color: var(--color-text-secondary); border: 1px solid rgba(255,255,255,0.15); border-radius: 20px; padding: 0.35rem 0.75rem; font-size: 0.82rem; cursor: pointer; transition: all 0.2s;'
+            });
+            pill.addEventListener('click', () => {
+                if (selectedDays.includes(d)) {
+                    selectedDays = selectedDays.filter(day => day !== d);
+                } else {
+                    selectedDays.push(d);
+                    selectedDays.sort((a, b) => a - b);
+                }
+                updateDaysUI();
+            });
+            daysPillsContainer.appendChild(pill);
+        });
+    };
+    updateDaysUI();
+    daysGroup.appendChild(daysPillsContainer);
+    modalContent.appendChild(daysGroup);
+
+    // 3. Time Range Inputs
+    const timesGroup = ui.createElement('div', [], { style: 'display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;' });
+
+    const extractHHMM = (str) => {
+        if (!str) return '09:00';
+        const match = str.toString().match(/(\d{1,2}):(\d{2})/);
+        if (match) {
+            return `${match[1].padStart(2, '0')}:${match[2]}`;
+        }
+        return '09:00';
+    };
+
+    const startInputBox = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.4rem;' });
+    startInputBox.appendChild(ui.createElementWithText('label', t('sched_start_time'), [], { style: 'font-size: 0.85rem; font-weight: 600;' }));
+    const startTimeInput = ui.createElement('input', ['search-input'], {
+        type: 'time',
+        value: normExisting ? extractHHMM(normExisting.startTime) : '09:00'
+    });
+    startInputBox.appendChild(startTimeInput);
+    timesGroup.appendChild(startInputBox);
+
+    const endInputBox = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.4rem;' });
+    endInputBox.appendChild(ui.createElementWithText('label', t('sched_end_time'), [], { style: 'font-size: 0.85rem; font-weight: 600;' }));
+    const endTimeInput = ui.createElement('input', ['search-input'], {
+        type: 'time',
+        value: normExisting ? extractHHMM(normExisting.endTime) : '23:00'
+    });
+    endInputBox.appendChild(endTimeInput);
+    timesGroup.appendChild(endInputBox);
+
+    modalContent.appendChild(timesGroup);
+
+    // 4. Action Buttons
+    const actionsRow = ui.createElement('div', [], { style: 'display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 0.5rem;' });
+    
+    const cancelBtn = ui.createElementWithText('button', isAr ? 'إلغاء' : 'Cancel', ['btn', 'btn-secondary']);
+    cancelBtn.addEventListener('click', () => ui.closeModal());
+    actionsRow.appendChild(cancelBtn);
+
+    const saveBtn = ui.createElementWithText('button', isAr ? 'حفظ الموعد' : 'Save Schedule', ['btn', 'btn-primary']);
+    saveBtn.addEventListener('click', async () => {
+        if (selectedDays.length === 0) {
+            ui.showToast(isAr ? 'يرجى اختيار يوم عمل واحد على الأقل' : 'Please select at least one day', 'warning');
+            return;
+        }
+        if (!startTimeInput.value || !endTimeInput.value) {
+            ui.showToast(isAr ? 'يرجى تحديد أوقات البدء والانتهاء' : 'Please specify start and end times', 'warning');
+            return;
+        }
+
+        saveBtn.disabled = true;
+        saveBtn.textContent = isAr ? 'جاري الحفظ...' : 'Saving...';
+
+        const sVal = startTimeInput.value.trim();
+        const eVal = endTimeInput.value.trim();
+        const startTimeFull = sVal.length === 5 ? `${sVal}:00` : sVal;
+        const endTimeFull = eVal.length === 5 ? `${eVal}:00` : eVal;
+
+        const payload = {
+            startTime: startTimeFull,
+            endTime: endTimeFull,
+            type: parseInt(typeSelect.value, 10),
+            daysOfWeek: selectedDays.map(Number)
+        };
+        if (isEdit) {
+            payload.id = Number(normExisting.id);
+        }
+
+        try {
+            if (isEdit) {
+                await updateSchedule(payload);
+                ui.showToast(isAr ? 'تم تحديث الموعد بنجاح' : 'Schedule updated successfully', 'success');
+            } else {
+                await createSchedule(payload);
+                ui.showToast(isAr ? 'تمت إضافة الموعد بنجاح' : 'Schedule added successfully', 'success');
+            }
+            ui.closeModal();
+            await refreshSchedules();
+            if (onSuccessCallback) onSuccessCallback();
+        } catch (err) {
+            console.error('Save schedule error:', err);
+            ui.showToast(t('error_generic') + ': ' + (err.message || err), 'error');
+        } finally {
+            saveBtn.disabled = false;
+            saveBtn.textContent = isAr ? 'حفظ الموعد' : 'Save Schedule';
+        }
+    });
+    actionsRow.appendChild(saveBtn);
+
+    modalContent.appendChild(actionsRow);
+
+    ui.showModal(titleStr, modalContent);
 }
 
 // ─── Autostart ────────────────────────────────────────────────────────────────
