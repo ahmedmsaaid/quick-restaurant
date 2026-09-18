@@ -253,8 +253,28 @@ export function maskPII(value, type) {
  * @param {Array<{text: string, type: string, onClick: Function}>} buttons - Config array for footer actions
  */
 export function showModal(title, bodyNode, buttons = []) {
-    const overlay = document.getElementById('modal-overlay');
-    const container = document.getElementById('modal-container');
+    let overlay = document.getElementById('modal-overlay');
+    let container = document.getElementById('modal-container');
+    
+    if (!overlay) {
+        overlay = createElement('div', ['modal-overlay', 'hidden'], { id: 'modal-overlay' });
+        document.body.appendChild(overlay);
+    }
+    if (!container) {
+        container = createElement('div', ['modal-card'], { id: 'modal-container' });
+        overlay.appendChild(container);
+    }
+
+    // Reset container styles in case they were modified by other custom modals
+    container.style.background = '';
+    container.style.border = '';
+    container.style.borderTop = '';
+    container.style.boxShadow = '';
+    container.style.padding = '';
+    container.style.maxWidth = '';
+    container.style.width = '';
+    container.style.maxHeight = '';
+    container.style.overflowY = '';
     
     // Clear previous content safely
     container.replaceChildren();
@@ -290,12 +310,19 @@ export function showModal(title, bodyNode, buttons = []) {
             footer.appendChild(btn);
         });
     }
+
+    // Backdrop click to close
+    overlay.onclick = (e) => {
+        if (e.target === overlay) closeModal();
+    };
     
     container.appendChild(header);
     container.appendChild(body);
     container.appendChild(footer);
     
     overlay.classList.remove('hidden');
+    overlay.style.display = 'flex';
+    overlay.style.zIndex = '999999';
 }
 
 /**

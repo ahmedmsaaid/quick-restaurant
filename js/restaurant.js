@@ -8,6 +8,7 @@ import * as ui from './ui-utils.js?v=29.0';
 import { t, getLanguage, setLanguage, initTranslations, subscribeLangChange } from './translations.js';
 import { ApiClient, ImageService, Logger } from './core.js';
 import { initFCMNotificationService } from './fcm-helper.js';
+import { initSignalRNotificationService, stopSignalRConnection } from './signalr-helper.js';
 console.log('🚀 restaurant.js module loaded');
 
 function clearInvalid(inputEl) {
@@ -776,11 +777,22 @@ export async function initRestaurant() {
             renderActiveTab();
         }
     });
+
+    // Initialize SignalR Real-Time Notifications
+    initSignalRNotificationService(apiClient, async (notification) => {
+        await refreshOrders();
+        updateBadges();
+        checkBuzzerAlarm();
+        if (activeTab === 'queue' || activeTab === 'progress') {
+            renderActiveTab();
+        }
+    });
     
     // Wire logout button in header
     const logoutBtn = document.getElementById('btn-logout');
     if (logoutBtn) {
-        logoutBtn.addEventListener('click', () => {
+        logoutBtn.addEventListener('click', async () => {
+            await stopSignalRConnection();
             localStorage.removeItem('qs_vendor_token');
             localStorage.removeItem('qs_vendor_user');
             window.location.replace('login.html?role=restaurant');
@@ -1497,6 +1509,79 @@ function renderMenuTab(parent) {
     runFilter();
 }
 
+function buildProductDiscountControl(currentDiscountIds, currentDiscountPct, initialPrice, typeNum = 0) {
+    const isAr = getLanguage() === 'ar';
+    const wrap = ui.createElement('div', [], {
+        style: 'background: rgba(0,0,0,0.02); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem;'
+    });
+
+    const header = ui.createElementWithText('label', isAr ? '🏷️ الخصم / العرض (اختياري)' : '🏷️ Discount & Offer (Optional)', [], {
+        style: 'font-weight: 600; font-size: 0.85rem; color: var(--text-primary);'
+    });
+    wrap.appendChild(header);
+
+    // Dropdown for existing discounts only
+    const select = ui.createElement('select', ['select-input'], { style: 'width: 100%; font-size: 0.85rem;' });
+    select.appendChild(ui.createElementWithText('option', isAr ? '-- بدون خصم --' : '-- No Discount --', [], { value: '' }));
+
+    let activeId = '';
+    if (currentDiscountIds && currentDiscountIds.length > 0) {
+        activeId = currentDiscountIds[0].toString();
+    } else if (currentDiscountPct && discounts.length > 0) {
+        const found = discounts.find(d => d.percentage === currentDiscountPct);
+        if (found) activeId = found.id.toString();
+    }
+
+    discounts.forEach(d => {
+        const opt = ui.createElementWithText('option', `${d.name} (${d.percentage}%)`, [], { value: d.id.toString() });
+        if (d.id.toString() === activeId) opt.selected = true;
+        select.appendChild(opt);
+    });
+    wrap.appendChild(select);
+
+    // Live preview element
+    const previewEl = ui.createElement('div', [], {
+        style: 'font-size: 0.8rem; color: var(--brand-teal); font-weight: 600; display: none; margin-top: 0.25rem;'
+    });
+    wrap.appendChild(previewEl);
+
+    function updatePreview(price) {
+        let pct = 0;
+        if (select.value) {
+            const found = discounts.find(d => d.id.toString() === select.value);
+            if (found) pct = found.percentage;
+        }
+
+        const basePrice = parseFloat(price) || 0;
+        if (pct > 0 && basePrice > 0) {
+            const finalPrice = (basePrice * (1 - pct / 100)).toFixed(2);
+            previewEl.textContent = isAr
+                ? `⚡ السعر بعد الخصم: ${finalPrice} (${pct}% خصم)`
+                : `⚡ Price after discount: ${finalPrice} (${pct}% OFF)`;
+            previewEl.style.display = 'block';
+        } else {
+            previewEl.style.display = 'none';
+        }
+    }
+
+    select.addEventListener('change', () => {
+        // Handled via priceIn listener or direct update
+    });
+
+    async function resolveDiscountIds() {
+        if (select.value) {
+            return [parseInt(select.value)];
+        }
+        return [];
+    }
+
+    return {
+        element: wrap,
+        updatePreview,
+        resolveDiscountIds
+    };
+}
+
 function showEditItemModal(item) {
     const modalBody = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.75rem;' });
     
@@ -1518,28 +1603,16 @@ function showEditItemModal(item) {
     const qtyIn = ui.createElement('input', ['search-input'], { value: currentQty, type: 'number', style: 'width: 100%', min: '0', step: '1' });
     modalBody.appendChild(qtyIn);
 
-    // Discount Dropdown Selector
-    let activeDiscountId = '';
-    if (item.rawProduct) {
-        if (item.rawProduct.discountIds && item.rawProduct.discountIds.length > 0) {
-            activeDiscountId = item.rawProduct.discountIds[0].toString();
-        } else if (item.rawProduct.discountPercentage) {
-            const matched = discounts.find(d => d.percentage === item.rawProduct.discountPercentage);
-            if (matched) activeDiscountId = matched.id.toString();
-        }
-    }
+    // Discount Control
+    const currentDiscountIds = item.rawProduct ? item.rawProduct.discountIds : [];
+    const currentDiscountPct = item.rawProduct ? item.rawProduct.discountPercentage : 0;
+    const discountCtrl = buildProductDiscountControl(currentDiscountIds, currentDiscountPct, item.price, 0);
+    modalBody.appendChild(discountCtrl.element);
 
-    modalBody.appendChild(ui.createElementWithText('label', t('rest_add_modal_discount'), [], { style: 'font-size: 0.85rem;' }));
-    const discountSel = ui.createElement('select', ['select-input'], { style: 'width: 100%' });
-    discountSel.appendChild(ui.createElementWithText('option', t('rest_add_modal_no_discount'), [], { value: '' }));
-    discounts.forEach(d => {
-        const option = ui.createElementWithText('option', `${d.name} (${d.percentage}%)`, [], { value: d.id.toString() });
-        if (d.id.toString() === activeDiscountId) {
-            option.selected = true;
-        }
-        discountSel.appendChild(option);
-    });
-    modalBody.appendChild(discountSel);
+    priceIn.addEventListener('input', () => discountCtrl.updatePreview(priceIn.value));
+    discountCtrl.element.addEventListener('change', () => discountCtrl.updatePreview(priceIn.value));
+    discountCtrl.element.addEventListener('input', () => discountCtrl.updatePreview(priceIn.value));
+    discountCtrl.updatePreview(priceIn.value);
 
     // Edit Category Dropdown
     modalBody.appendChild(ui.createElementWithText('label', t('rest_add_modal_category'), [], { style: 'font-size: 0.85rem;' }));
@@ -1635,6 +1708,7 @@ function showEditItemModal(item) {
                 const selectedCatName = catSel.value;
                 const matchedCategory = categories.find(c => c.name === selectedCatName);
                 const categoryId = matchedCategory ? matchedCategory.id : 3;
+                const resolvedDiscountIds = await discountCtrl.resolveDiscountIds();
 
                 // Optimistic local update
                 const originalMenu = [...restaurantMenu];
@@ -1652,7 +1726,7 @@ function showEditItemModal(item) {
                         rawProduct: {
                             ...restaurantMenu[index].rawProduct,
                             quantity: quantity,
-                            discountIds: discountSel.value ? [parseInt(discountSel.value)] : []
+                            discountIds: resolvedDiscountIds
                         }
                     };
                     renderActiveTab();
@@ -1674,7 +1748,7 @@ function showEditItemModal(item) {
                             type: 0,
                             categoryId: categoryId,
                             creatorId: item.rawProduct ? item.rawProduct.creatorId : (myRestaurantId || 0),
-                            discountIds: discountSel.value ? [parseInt(discountSel.value)] : []
+                            discountIds: resolvedDiscountIds
                         })
                     });
                     ui.showToast(getLanguage() === 'ar' ? 'تم تحديث المنتج بنجاح' : 'Product updated successfully', 'success');
@@ -1745,43 +1819,36 @@ function showAddRestaurantMenuModal() {
     }
     catWrap.appendChild(catSel);
 
-    const row1 = ui.createElement('div', [], { style: 'display: grid; grid-template-columns: 2fr 1fr; gap: 1rem;' });
+    const row1 = ui.createElement('div', [], { style: 'display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;' });
     row1.appendChild(nameWrap);
     row1.appendChild(catWrap);
 
     // 2. Description
     const descWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem;' });
     descWrap.appendChild(ui.createElementWithText('label', t('rest_add_modal_desc'), [], { style: 'font-weight: 600; font-size: 0.85rem;' }));
-    const descIn = ui.createElement('textarea', ['search-input'], {
-        style: 'min-height: 60px; font-family: inherit; resize: vertical;',
-        placeholder: 'e.g. Juicy double beef patty with melted cheddar...'
-    });
+    const descIn = ui.createElement('textarea', ['search-input'], { rows: 2, placeholder: 'e.g. 200g beef, cheddar cheese, secret sauce' });
     descWrap.appendChild(descIn);
 
-    // 3. Price & Quantity (row2)
+    // 3. Price & Quantity
     const priceWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem;' });
     priceWrap.appendChild(ui.createElementWithText('label', t('rest_add_modal_price'), [], { style: 'font-weight: 600; font-size: 0.85rem;' }));
-    const priceIn = ui.createElement('input', ['search-input'], { type: 'number', step: '0.01', min: '0', value: '10.00' });
+    const priceIn = ui.createElement('input', ['search-input'], { type: 'number', step: '0.5', placeholder: '0.00' });
     priceWrap.appendChild(priceIn);
 
     const qtyWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem;' });
     qtyWrap.appendChild(ui.createElementWithText('label', t('rest_add_modal_quantity'), [], { style: 'font-weight: 600; font-size: 0.85rem;' }));
-    const qtyIn = ui.createElement('input', ['search-input'], { type: 'number', min: '0', step: '1', value: '999' });
+    const qtyIn = ui.createElement('input', ['search-input'], { type: 'number', step: '1', min: '0', value: '999' });
     qtyWrap.appendChild(qtyIn);
 
     const row2 = ui.createElement('div', [], { style: 'display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;' });
     row2.appendChild(priceWrap);
     row2.appendChild(qtyWrap);
 
-    // 3.5 Discount Dropdown Selector
-    const discountWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem;' });
-    discountWrap.appendChild(ui.createElementWithText('label', t('rest_add_modal_discount'), [], { style: 'font-weight: 600; font-size: 0.85rem;' }));
-    const discountSel = ui.createElement('select', ['select-input']);
-    discountSel.appendChild(ui.createElementWithText('option', t('rest_add_modal_no_discount'), [], { value: '' }));
-    discounts.forEach(d => {
-        discountSel.appendChild(ui.createElementWithText('option', `${d.name} (${d.percentage}%)`, [], { value: d.id.toString() }));
-    });
-    discountWrap.appendChild(discountSel);
+    // 3.5 Discount Control
+    const discountCtrl = buildProductDiscountControl([], 0, 0, 0);
+    priceIn.addEventListener('input', () => discountCtrl.updatePreview(priceIn.value));
+    discountCtrl.element.addEventListener('change', () => discountCtrl.updatePreview(priceIn.value));
+    discountCtrl.element.addEventListener('input', () => discountCtrl.updatePreview(priceIn.value));
 
     // Image upload row
     const imgWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem;' });
@@ -1843,7 +1910,7 @@ function showAddRestaurantMenuModal() {
     form.appendChild(row1);
     form.appendChild(descWrap);
     form.appendChild(row2);
-    form.appendChild(discountWrap);
+    form.appendChild(discountCtrl.element);
     form.appendChild(imgWrap);
     form.appendChild(availLabel);
 
@@ -1884,6 +1951,7 @@ function showAddRestaurantMenuModal() {
                 const selectedCatName = catSel.value;
                 const matchedCategory = categories.find(c => c.name === selectedCatName);
                 const categoryId = matchedCategory ? matchedCategory.id : 3;
+                const resolvedDiscountIds = await discountCtrl.resolveDiscountIds();
 
                 // Optimistic local update
                 const newProductObj = {
@@ -1897,7 +1965,7 @@ function showAddRestaurantMenuModal() {
                     modifiers: [],
                     rawProduct: {
                         quantity: quantity,
-                        discountIds: discountSel.value ? [parseInt(discountSel.value)] : []
+                        discountIds: resolvedDiscountIds
                     }
                 };
                 restaurantMenu.push(newProductObj);
@@ -1919,10 +1987,10 @@ function showAddRestaurantMenuModal() {
                             type: 0,
                             categoryId: categoryId,
                             creatorId: myRestaurantId || 0,
-                            discountIds: discountSel.value ? [parseInt(discountSel.value)] : []
+                            discountIds: resolvedDiscountIds
                         })
                     });
-                    ui.showToast(getLanguage() === 'ar' ? 'تمت إضافة المنتج بنجاح' : 'Product added successfully', 'success');
+                    ui.showToast(getLanguage() === 'ar' ? 'تمت إضافة الوجبة بنجاح' : 'Dish added successfully', 'success');
                     await refreshMenu();
                     if (activeTab === 'menu') renderActiveTab();
                 } catch (err) {

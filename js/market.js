@@ -9,6 +9,7 @@ import * as ui from './ui-utils.js?v=29.0';
 import { t, getLanguage, setLanguage, initTranslations, subscribeLangChange } from './translations.js';
 import { ApiClient, ImageService, Logger } from './core.js';
 import { initFCMNotificationService } from './fcm-helper.js';
+import { initSignalRNotificationService, stopSignalRConnection } from './signalr-helper.js';
 console.log('🛒 market.js module loaded');
 
 function clearInvalid(inputEl) {
@@ -704,14 +705,25 @@ export async function initMarket() {
         await refreshOrders();
         updateBadges();
         checkBuzzerAlarm();
-        if (activeTab === 'queue' || activeTab === 'progress') {
+        if (activeTab === 'orders' || activeTab === 'queue' || activeTab === 'progress') {
+            renderActiveTab();
+        }
+    });
+
+    // Initialize SignalR Real-Time Notifications
+    initSignalRNotificationService(apiClient, async (notification) => {
+        await refreshOrders();
+        updateBadges();
+        checkBuzzerAlarm();
+        if (activeTab === 'orders' || activeTab === 'queue' || activeTab === 'progress') {
             renderActiveTab();
         }
     });
 
     const logoutBtn = document.getElementById('btn-logout');
     if (logoutBtn) {
-        logoutBtn.addEventListener('click', () => {
+        logoutBtn.addEventListener('click', async () => {
+            await stopSignalRConnection();
             localStorage.removeItem('qs_vendor_token');
             localStorage.removeItem('qs_vendor_user');
             window.location.replace('login.html?role=market');
@@ -1223,22 +1235,22 @@ function showAddProductModal() {
     row2.appendChild(priceWrap);
     row2.appendChild(qtyWrap);
 
-    // Discount dropdown
-    const discountWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem;' });
-    discountWrap.appendChild(ui.createElementWithText('label', t('rest_add_modal_discount'), [], { style: 'font-weight: 600; font-size: 0.85rem;' }));
-    const discountSel = ui.createElement('select', ['select-input']);
-    discountSel.appendChild(ui.createElementWithText('option', t('rest_add_modal_no_discount'), [], { value: '' }));
-    discounts.forEach(d => discountSel.appendChild(ui.createElementWithText('option', `${d.name} (${d.percentage}%)`, [], { value: d.id.toString() })));
-    discountWrap.appendChild(discountSel);
+    // 3.5 Discount Control
+    const discountCtrl = buildProductDiscountControl([], 0, 0, 1);
+    priceIn.addEventListener('input', () => discountCtrl.updatePreview(priceIn.value));
+    discountCtrl.element.addEventListener('change', () => discountCtrl.updatePreview(priceIn.value));
+    discountCtrl.element.addEventListener('input', () => discountCtrl.updatePreview(priceIn.value));
 
-    // Image
+    // Image upload
     const imgWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem;' });
     imgWrap.appendChild(ui.createElementWithText('label', t('mkt_add_modal_image'), [], { style: 'font-weight: 600; font-size: 0.85rem;' }));
     const imgRow = ui.createElement('div', [], { style: 'display: flex; gap: 1rem; align-items: center;' });
     const imgInput = ui.createElement('input', [], { type: 'file', accept: 'image/*', style: 'display: none;' });
     const uploadImgBtn = ui.createElementWithText('button', getLanguage() === 'ar' ? 'اختر صورة' : 'Choose Image', ['btn', 'btn-secondary']);
     uploadImgBtn.addEventListener('click', () => imgInput.click());
-    const previewImg = ui.createElement('img', [], { style: 'width: 50px; height: 50px; border-radius: var(--radius-sm); border: 1px solid var(--border-color); object-fit: cover; display: none;' });
+    const previewImg = ui.createElement('img', [], {
+        style: 'width: 50px; height: 50px; border-radius: var(--radius-sm); border: 1px solid var(--border-color); object-fit: cover; display: none;'
+    });
     let uploadedPhotoKey = '';
     imgInput.addEventListener('change', async (e) => {
         const file = e.target.files[0];
@@ -1248,23 +1260,23 @@ function showAddProductModal() {
             try {
                 const result = await uploadImage(file);
                 if (result) { uploadedPhotoKey = result; previewImg.src = getImageUrl(uploadedPhotoKey); }
-            } catch (_) { ui.showToast(getLanguage() === 'ar' ? 'فشل رفع الصورة' : 'Failed to upload image', 'error'); }
+            } catch (_) {
+                ui.showToast(getLanguage() === 'ar' ? 'فشل رفع الصورة' : 'Failed to upload image', 'error');
+            }
         }
     });
     imgRow.appendChild(uploadImgBtn);
     imgRow.appendChild(imgInput);
     imgRow.appendChild(previewImg);
     imgWrap.appendChild(imgRow);
-    const imgHint = ui.createElementWithText('span', getLanguage() === 'ar' ? 'الأبعاد الموصى بها: 600 × 600 بكسل (نسبة 1:1)' : 'Recommended dimensions: 600 × 600 px (1:1)', [], { style: 'font-size: 0.75rem; color: var(--text-muted); display: block; margin-top: 0.25rem;' });
-    imgWrap.appendChild(imgHint);
 
-    // Availability
+    // Availability switch
     const availLabel = ui.createElement('label', ['switch-container'], { style: 'margin-top: 0.5rem;' });
     const availInput = ui.createElement('input', ['switch-input'], { type: 'checkbox', checked: 'true' });
     const availSlider = ui.createElement('div', ['switch-slider']);
     availLabel.appendChild(availInput);
     availLabel.appendChild(availSlider);
-    availLabel.appendChild(ui.createElementWithText('span', t('mkt_add_modal_available'), [], { style: 'font-size: 0.85rem;' }));
+    availLabel.appendChild(ui.createElementWithText('span', t('rest_add_modal_available'), [], { style: 'font-size: 0.85rem;' }));
     availInput.addEventListener('change', (e) => {
         qtyIn.disabled = !e.target.checked;
         if (!e.target.checked) qtyIn.value = '0';
@@ -1274,7 +1286,7 @@ function showAddProductModal() {
     form.appendChild(row1);
     form.appendChild(descWrap);
     form.appendChild(row2);
-    form.appendChild(discountWrap);
+    form.appendChild(discountCtrl.element);
     form.appendChild(imgWrap);
     form.appendChild(availLabel);
 
@@ -1314,11 +1326,13 @@ function showAddProductModal() {
                 const selectedCatName = catSel.value;
                 const matchedCat = categories.find(c => c.name === selectedCatName);
                 const categoryId = matchedCat ? matchedCat.id : 0;
+                const resolvedDiscountIds = await discountCtrl.resolveDiscountIds();
+
                 // Optimistic add
                 const tempItem = {
                     id: 'temp-' + Date.now(), name, price, category: selectedCatName,
                     description, isOutOfStock: !availInput.checked || quantity === 0,
-                    image: uploadedPhotoKey, rawProduct: { quantity, discountIds: discountSel.value ? [parseInt(discountSel.value)] : [] }
+                    image: uploadedPhotoKey, rawProduct: { quantity, discountIds: resolvedDiscountIds }
                 };
                 marketProducts.push(tempItem);
                 renderActiveTab();
@@ -1331,7 +1345,7 @@ function showAddProductModal() {
                             id: 0, name, photo: uploadedPhotoKey, description,
                             quantity, limit: false, price, size: null, type: 1,
                             categoryId, creatorId: myMarketId || 0,
-                            discountIds: discountSel.value ? [parseInt(discountSel.value)] : []
+                            discountIds: resolvedDiscountIds
                         })
                     });
                     ui.showToast(getLanguage() === 'ar' ? 'تمت إضافة المنتج بنجاح' : 'Product added successfully', 'success');
@@ -1347,6 +1361,75 @@ function showAddProductModal() {
         },
         { text: t('cancel'), type: 'secondary', onClick: ui.closeModal }
     ]);
+}
+
+function buildProductDiscountControl(currentDiscountIds, currentDiscountPct, initialPrice, typeNum = 1) {
+    const isAr = getLanguage() === 'ar';
+    const wrap = ui.createElement('div', [], {
+        style: 'background: rgba(0,0,0,0.02); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem;'
+    });
+
+    const header = ui.createElementWithText('label', isAr ? '🏷️ الخصم / العرض (اختياري)' : '🏷️ Discount & Offer (Optional)', [], {
+        style: 'font-weight: 600; font-size: 0.85rem; color: var(--text-primary);'
+    });
+    wrap.appendChild(header);
+
+    // Dropdown for existing discounts only
+    const select = ui.createElement('select', ['select-input'], { style: 'width: 100%; font-size: 0.85rem;' });
+    select.appendChild(ui.createElementWithText('option', isAr ? '-- بدون خصم --' : '-- No Discount --', [], { value: '' }));
+
+    let activeId = '';
+    if (currentDiscountIds && currentDiscountIds.length > 0) {
+        activeId = currentDiscountIds[0].toString();
+    } else if (currentDiscountPct && discounts.length > 0) {
+        const found = discounts.find(d => d.percentage === currentDiscountPct);
+        if (found) activeId = found.id.toString();
+    }
+
+    discounts.forEach(d => {
+        const opt = ui.createElementWithText('option', `${d.name} (${d.percentage}%)`, [], { value: d.id.toString() });
+        if (d.id.toString() === activeId) opt.selected = true;
+        select.appendChild(opt);
+    });
+    wrap.appendChild(select);
+
+    // Live preview element
+    const previewEl = ui.createElement('div', [], {
+        style: 'font-size: 0.8rem; color: var(--brand-teal); font-weight: 600; display: none; margin-top: 0.25rem;'
+    });
+    wrap.appendChild(previewEl);
+
+    function updatePreview(price) {
+        let pct = 0;
+        if (select.value) {
+            const found = discounts.find(d => d.id.toString() === select.value);
+            if (found) pct = found.percentage;
+        }
+
+        const basePrice = parseFloat(price) || 0;
+        if (pct > 0 && basePrice > 0) {
+            const finalPrice = (basePrice * (1 - pct / 100)).toFixed(2);
+            previewEl.textContent = isAr
+                ? `⚡ السعر بعد الخصم: ${finalPrice} (${pct}% خصم)`
+                : `⚡ Price after discount: ${finalPrice} (${pct}% OFF)`;
+            previewEl.style.display = 'block';
+        } else {
+            previewEl.style.display = 'none';
+        }
+    }
+
+    async function resolveDiscountIds() {
+        if (select.value) {
+            return [parseInt(select.value)];
+        }
+        return [];
+    }
+
+    return {
+        element: wrap,
+        updatePreview,
+        resolveDiscountIds
+    };
 }
 
 function showEditProductModal(item) {
@@ -1369,20 +1452,16 @@ function showEditProductModal(item) {
     const qtyIn = ui.createElement('input', ['search-input'], { value: currentQty, type: 'number', style: 'width: 100%', min: '0' });
     modalBody.appendChild(qtyIn);
 
-    // Discount dropdown
-    let activeDiscountId = '';
-    if (item.rawProduct && item.rawProduct.discountIds && item.rawProduct.discountIds.length > 0) {
-        activeDiscountId = item.rawProduct.discountIds[0].toString();
-    }
-    modalBody.appendChild(ui.createElementWithText('label', t('rest_add_modal_discount'), [], { style: 'font-size: 0.85rem;' }));
-    const discountSel = ui.createElement('select', ['select-input'], { style: 'width: 100%' });
-    discountSel.appendChild(ui.createElementWithText('option', t('rest_add_modal_no_discount'), [], { value: '' }));
-    discounts.forEach(d => {
-        const opt = ui.createElementWithText('option', `${d.name} (${d.percentage}%)`, [], { value: d.id.toString() });
-        if (d.id.toString() === activeDiscountId) opt.selected = true;
-        discountSel.appendChild(opt);
-    });
-    modalBody.appendChild(discountSel);
+    // Discount control
+    const currentDiscountIds = item.rawProduct ? item.rawProduct.discountIds : [];
+    const currentDiscountPct = item.rawProduct ? item.rawProduct.discountPercentage : 0;
+    const discountCtrl = buildProductDiscountControl(currentDiscountIds, currentDiscountPct, item.price, 1);
+    modalBody.appendChild(discountCtrl.element);
+
+    priceIn.addEventListener('input', () => discountCtrl.updatePreview(priceIn.value));
+    discountCtrl.element.addEventListener('change', () => discountCtrl.updatePreview(priceIn.value));
+    discountCtrl.element.addEventListener('input', () => discountCtrl.updatePreview(priceIn.value));
+    discountCtrl.updatePreview(priceIn.value);
 
     // Category dropdown
     modalBody.appendChild(ui.createElementWithText('label', t('mkt_add_modal_category'), [], { style: 'font-size: 0.85rem;' }));
@@ -1463,10 +1542,12 @@ function showEditProductModal(item) {
                 const selectedCatName = catSel.value;
                 const matchedCat = categories.find(c => c.name === selectedCatName);
                 const categoryId = matchedCat ? matchedCat.id : (item.rawProduct ? item.rawProduct.categoryId : 0);
+                const resolvedDiscountIds = await discountCtrl.resolveDiscountIds();
+
                 const originalProducts = [...marketProducts];
                 const index = marketProducts.findIndex(p => p.id === item.id);
                 if (index !== -1) {
-                    marketProducts[index] = { ...marketProducts[index], name: newName, price: newPrice, category: selectedCatName, description: newDescText, image: uploadedPhotoKey, isOutOfStock: quantity === 0, rawProduct: { ...marketProducts[index].rawProduct, quantity, discountIds: discountSel.value ? [parseInt(discountSel.value)] : [] } };
+                    marketProducts[index] = { ...marketProducts[index], name: newName, price: newPrice, category: selectedCatName, description: newDescText, image: uploadedPhotoKey, isOutOfStock: quantity === 0, rawProduct: { ...marketProducts[index].rawProduct, quantity, discountIds: resolvedDiscountIds } };
                     renderActiveTab();
                 }
                 ui.closeModal();
@@ -1479,7 +1560,7 @@ function showEditProductModal(item) {
                             description: newDescText, quantity, limit: false, price: newPrice,
                             size: null, type: 1, categoryId,
                             creatorId: item.rawProduct ? item.rawProduct.creatorId : (myMarketId || 0),
-                            discountIds: discountSel.value ? [parseInt(discountSel.value)] : []
+                            discountIds: resolvedDiscountIds
                         })
                     });
                     ui.showToast(getLanguage() === 'ar' ? 'تم تحديث المنتج بنجاح' : 'Product updated successfully', 'success');
