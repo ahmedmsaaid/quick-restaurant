@@ -298,11 +298,12 @@ async function refreshProducts() {
 
 async function refreshOrders() {
     if (!myMarketId) {
-        const userJson = localStorage.getItem('qs_vendor_user');
+        const userJson = localStorage.getItem('qs_vendor_user') || localStorage.getItem('qs_user') || localStorage.getItem('user');
         if (userJson) {
             try { myMarketId = parseInt(JSON.parse(userJson).id); } catch (_) { }
         }
     }
+    if (!myMarketId) return;
     try {
         if (marketProducts.length === 0 && myMarketId) await refreshProducts();
         const myProductIds = new Set(marketProducts.map(p => parseInt(p.id)));
@@ -310,27 +311,19 @@ async function refreshOrders() {
             method: 'PATCH',
             body: JSON.stringify({
                 pageNumber: 1, pageSize: 1000, enablePagination: false,
-                includesPath: ["OrderProducts.Product", "User"],
-                filters: {}
+                includesPath: ["OrderProducts.Product", "Creator", "User"],
+                filters: { UserId: parseInt(myMarketId) }
             })
         });
         if (data && data.result) {
             console.log("DEBUG - raw orders from backend:", data.result);
             console.log("DEBUG - myProductIds Set:", Array.from(myProductIds));
             const fetchedOrders = data.result.filter(ord => {
-                if (!ord.products || ord.products.length === 0) {
-                    if (myMarketId && ord.creatorId && parseInt(ord.creatorId) === myMarketId) return true;
-                    if (myMarketId && ord.storeId && parseInt(ord.storeId) === myMarketId) return true;
-                    if (myMarketId && ord.vendorId && parseInt(ord.vendorId) === myMarketId) return true;
-                    if (myProductIds.size === 0) return true;
-                    return false;
+                // Must match this market's userId or products
+                if (ord.userId && parseInt(ord.userId) === parseInt(myMarketId)) return true;
+                if (ord.products && ord.products.length > 0) {
+                    return ord.products.some(p => myProductIds.has(p.productId));
                 }
-                const matches = ord.products.some(p => myProductIds.has(p.productId));
-                if (matches) return true;
-                if (myMarketId && ord.creatorId && parseInt(ord.creatorId) === myMarketId) return true;
-                if (myMarketId && ord.storeId && parseInt(ord.storeId) === myMarketId) return true;
-                if (myMarketId && ord.vendorId && parseInt(ord.vendorId) === myMarketId) return true;
-                if (myProductIds.size === 0) return true;
                 return false;
             }).map(ord => {
                 const items = (ord.products || []).map(p => {
@@ -353,8 +346,8 @@ async function refreshOrders() {
                     finalTotal: ord.totalPrice,
                     paymentMethod: ord.paymentMethod || (ord.rawOrder && ord.rawOrder.paymentMethod) || 0,
                     notes: ord.note || ord.notes || '',
-                    customerName: ord.user ? ord.user.name : (getLanguage() === 'ar' ? 'عميل' : 'Customer'),
-                    customerPhone: ord.user ? ord.user.phone : '',
+                    customerName: ord.creator ? ord.creator.name : (ord.user && ord.user.role === 2 ? ord.user.name : (getLanguage() === 'ar' ? 'عميل' : 'Customer')),
+                    customerPhone: ord.creator ? ord.creator.phone : (ord.user && ord.user.role === 2 ? ord.user.phone : ''),
                     createdAt: ord.createdAt,
                     rawOrder: ord
                 };

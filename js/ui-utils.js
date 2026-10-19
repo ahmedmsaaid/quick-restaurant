@@ -57,22 +57,85 @@ export function createElementWithText(tag, text, classes = [], attributes = {}) 
 }
 
 /**
- * POS Thermal Receipt Printer for Handheld POS (Sunmi V2 Pro) & Web Browsers
+ * POS Thermal Receipt Printer for Handheld POS (Sunmi V2 Pro), Bluetooth Printers & Web Browsers
+ * Modeled directly after Haat Store's thermal printing architecture
+ * @param {Object} order - The order DTO or raw order
+ * @param {Object} options - { paperSize: '80mm'|'58mm'|'a4', copies: 1 }
  */
-export function printOrderReceipt(order = {}) {
+export function printOrderReceipt(order = {}, options = {}) {
     if (!order) return;
 
+    const paperSize = options.paperSize || '80mm';
+    const copies = Math.max(1, parseInt(options.copies || 1));
+    const isAr = (typeof getLanguage === 'function' ? getLanguage() : (localStorage.getItem('portal_lang') || 'ar')) === 'ar';
+
     const orderId = order.id || order.orderId || order.code || '1001';
-    const dateStr = order.createdAt ? new Date(order.createdAt).toLocaleString('ar-EG') : new Date().toLocaleString('ar-EG');
-    const storeName = order.storeName || order.vendorName || (document.documentElement.dir === 'rtl' ? 'خدمة كويك السريعة' : 'Quick Delivery');
-    const customerName = order.customerName || order.userName || (document.documentElement.dir === 'rtl' ? 'عميل كويك' : 'Customer');
-    const customerPhone = order.customerPhone || order.userPhone || '';
-    const address = order.address || order.deliveryAddress || '';
-    const items = order.items || order.orderItems || order.products || [];
-    const subtotal = order.subtotal || order.itemsTotal || order.totalPrice || 0;
-    const deliveryFee = order.deliveryFee || order.shippingFee || 0;
-    const total = order.total || order.grandTotal || (parseFloat(subtotal) + parseFloat(deliveryFee)) || 0;
-    const paymentMethod = order.paymentMethod || (document.documentElement.dir === 'rtl' ? 'نقداً عند الاستلام' : 'Cash on Delivery');
+    let dateStr = '';
+    try {
+        dateStr = order.createdAt ? new Date(order.createdAt).toLocaleString(isAr ? 'ar-EG' : 'en-US') : new Date().toLocaleString(isAr ? 'ar-EG' : 'en-US');
+    } catch (_) {
+        dateStr = new Date().toLocaleString();
+    }
+
+    // Determine store name from order, DOM header, or cached vendor profile
+    let storeName = order.storeName || order.vendorName || '';
+    if (!storeName) {
+        const headerNameEl = document.getElementById('header-vendor-name');
+        if (headerNameEl && headerNameEl.textContent && headerNameEl.textContent.trim()) {
+            storeName = headerNameEl.textContent.trim();
+        }
+    }
+    if (!storeName) {
+        try {
+            const userJson = localStorage.getItem('qs_vendor_user') || localStorage.getItem('qs_user');
+            if (userJson) {
+                const parsed = JSON.parse(userJson);
+                storeName = parsed.name || parsed.storeName || '';
+            }
+        } catch (_) {}
+    }
+    if (!storeName) {
+        storeName = isAr ? 'خدمة كويك السريعة' : 'Quick Delivery';
+    }
+
+    const customerName = order.customerName || (order.user ? order.user.name : '') || (order.creator ? order.creator.name : '') || (isAr ? 'عميل كويك' : 'Customer');
+    const customerPhone = order.customerPhone || (order.user ? order.user.phone : '') || (order.creator ? order.creator.phone : '') || '';
+    const address = order.address || order.deliveryAddress || (order.formattedDeliveryAddress) || '';
+    const items = Array.isArray(order.items) ? order.items : (order.products || order.orderProducts || []);
+
+    let subtotal = 0;
+    let itemsHtml = '';
+    if (items.length > 0) {
+        items.forEach((item, idx) => {
+            const name = item.name || item.productName || item.title || `${isAr ? 'صنف' : 'Item'} #${idx + 1}`;
+            const qty = parseInt(item.qty || item.quantity || 1);
+            const price = parseFloat(item.price || item.unitPrice || 0);
+            const itemTotal = (price * qty).toFixed(2);
+            subtotal += price * qty;
+            itemsHtml += `
+                <tr style="border-bottom: 1px dashed #cbd5e1;">
+                    <td style="padding: 4px 2px; text-align: right; font-weight: 700;">${name}</td>
+                    <td style="padding: 4px 2px; text-align: center;">${qty}</td>
+                    <td style="padding: 4px 2px; text-align: center;">${price.toFixed(2)}</td>
+                    <td style="padding: 4px 2px; text-align: left; font-weight: 700;">${itemTotal} ج.م</td>
+                </tr>
+            `;
+        });
+    } else {
+        subtotal = parseFloat(order.totalPrice || 0);
+        itemsHtml = `
+            <tr style="border-bottom: 1px dashed #cbd5e1;">
+                <td colspan="4" style="padding: 6px 0; text-align: center;">${isAr ? `طلب #${orderId}` : `Order #${orderId}`}</td>
+            </tr>
+        `;
+    }
+
+    const deliveryFee = parseFloat(order.deliveryFee || (order.rawOrder && order.rawOrder.deliveryFee) || 0);
+    const finalTotal = parseFloat(order.finalTotal || order.totalPrice || (subtotal + deliveryFee) || 0);
+    const isOnline = (order.rawOrder && order.rawOrder.paymentMethod === 1) || order.paymentMethod === 1;
+    const paymentMethodText = isOnline ? (isAr ? 'دفع إلكتروني' : 'Online Payment') : (isAr ? 'كاش عند الاستلام' : 'Cash on Delivery');
+    const paymentStatusBadge = isOnline ? (isAr ? '[مدفوع]' : '[PAID]') : (isAr ? '[غير مدفوع]' : '[UNPAID]');
+    const notes = (order.notes || order.note || '').trim();
 
     let printArea = document.getElementById('thermal-receipt-print-area');
     if (!printArea) {
@@ -82,45 +145,37 @@ export function printOrderReceipt(order = {}) {
     }
     printArea.style.display = 'none';
 
-    let itemsHtml = '';
-    if (items.length > 0) {
-        items.forEach((item, idx) => {
-            const name = item.name || item.productName || item.title || `منتج #${idx + 1}`;
-            const qty = item.qty || item.quantity || item.count || 1;
-            const price = item.price || item.unitPrice || 0;
-            const itemTotal = (parseFloat(price) * parseInt(qty)).toFixed(2);
-            itemsHtml += `
-                <tr style="border-bottom: 1px dashed #ccc;">
-                    <td style="padding: 4px 0; text-align: right;">${name}</td>
-                    <td style="padding: 4px 0; text-align: center;">${qty}</td>
-                    <td style="padding: 4px 0; text-align: left;">${itemTotal} ج.م</td>
-                </tr>
-            `;
-        });
-    } else {
-        itemsHtml = `
-            <tr style="border-bottom: 1px dashed #ccc;">
-                <td colspan="3" style="padding: 4px 0; text-align: center;">تفاصيل الطلب #${orderId}</td>
-            </tr>
-        `;
-    }
-
-    printArea.innerHTML = `
-        <div style="font-family: 'Cairo', sans-serif, monospace; font-size: 11px; color: #000; direction: rtl; text-align: right; width: 100%; box-sizing: border-box; padding: 5px;">
-            <div style="text-align: center; font-weight: 800; font-size: 14px; margin-bottom: 4px;">⚡ Quick Delivery ⚡</div>
-            <div style="text-align: center; font-size: 11px; font-weight: 700; margin-bottom: 8px;">${storeName}</div>
-            <div style="border-top: 1px dashed #000; margin: 4px 0;"></div>
-            <div><strong>رقم الطلب:</strong> #${orderId}</div>
-            <div><strong>التاريخ:</strong> ${dateStr}</div>
+    // Build Single Receipt HTML Block
+    const singleReceiptHtml = `
+        <div class="receipt-print-ticket" style="font-family: 'Cairo', monospace, sans-serif; font-size: ${paperSize === '58mm' ? '10px' : '11px'}; color: #000000; direction: rtl; text-align: right; width: 100%; box-sizing: border-box; padding: 4px; page-break-inside: avoid;">
+            <div style="text-align: center; margin-bottom: 6px;">
+                <div style="font-weight: 900; font-size: 14px; letter-spacing: 0.5px;">⚡ Quick Delivery ⚡</div>
+                <div style="font-size: 10px; font-weight: 700; color: #444;">كويك لخدمات التوصيل السريع</div>
+                <div style="font-size: 13px; font-weight: 800; margin-top: 4px; border: 1px solid #000; padding: 2px 6px; display: inline-block; border-radius: 4px;">${storeName}</div>
+            </div>
+            
+            <div style="border-top: 1px dashed #000; margin: 6px 0;"></div>
+            
+            <div style="display: flex; justify-content: space-between; font-weight: 800; font-size: 12px;">
+                <span>رقم الطلب: #${orderId}</span>
+                <span>توصيل</span>
+            </div>
+            <div style="font-size: 10px; color: #333; margin-top: 2px;">التاريخ: ${dateStr}</div>
+            
+            <div style="border-top: 1px dashed #000; margin: 6px 0;"></div>
+            
             <div><strong>العميل:</strong> ${customerName}</div>
             ${customerPhone ? `<div><strong>الهاتف:</strong> ${customerPhone}</div>` : ''}
-            ${(order.notes || order.note) ? `<div><strong>ملاحظات العميل:</strong> ${order.notes || order.note}</div>` : ''}
+            ${address ? `<div><strong>العنوان:</strong> ${address}</div>` : ''}
+            
             <div style="border-top: 1px dashed #000; margin: 6px 0;"></div>
-            <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+            
+            <table style="width: 100%; border-collapse: collapse; font-size: ${paperSize === '58mm' ? '9.5px' : '10.5px'};">
                 <thead>
                     <tr style="border-bottom: 1px solid #000;">
                         <th style="text-align: right; padding-bottom: 4px;">الصنف</th>
                         <th style="text-align: center; padding-bottom: 4px;">العدد</th>
+                        <th style="text-align: center; padding-bottom: 4px;">السعر</th>
                         <th style="text-align: left; padding-bottom: 4px;">المجموع</th>
                     </tr>
                 </thead>
@@ -128,27 +183,379 @@ export function printOrderReceipt(order = {}) {
                     ${itemsHtml}
                 </tbody>
             </table>
+            
             <div style="border-top: 1px dashed #000; margin: 6px 0;"></div>
-            <div style="display: flex; justify-content: space-between; font-weight: 700;">
+            
+            <div style="display: flex; justify-content: space-between;">
                 <span>المجموع الفرعي:</span>
-                <span>${parseFloat(subtotal).toFixed(2)} ج.م</span>
+                <span style="font-weight: 700;">${subtotal.toFixed(2)} ج.م</span>
             </div>
-            <div style="display: flex; justify-content: space-between; font-weight: 700;">
-                <span>التوصيل:</span>
-                <span>${parseFloat(deliveryFee).toFixed(2)} ج.م</span>
+            <div style="display: flex; justify-content: space-between;">
+                <span>رسوم التوصيل:</span>
+                <span style="font-weight: 700;">${deliveryFee.toFixed(2)} ج.م</span>
             </div>
+            
             <div style="border-top: 1px solid #000; margin: 4px 0;"></div>
-            <div style="display: flex; justify-content: space-between; font-weight: 800; font-size: 13px;">
+            
+            <div style="display: flex; justify-content: space-between; font-weight: 900; font-size: 13px; background: #eee; padding: 4px;">
                 <span>الإجمالي الكلي:</span>
-                <span>${parseFloat(total).toFixed(2)} ج.م</span>
+                <span>${finalTotal.toFixed(2)} ج.م</span>
             </div>
-            <div style="margin-top: 4px;"><strong>طريقة الدفع:</strong> ${paymentMethod}</div>
+            
+            <div style="margin-top: 6px; display: flex; justify-content: space-between;">
+                <span><strong>وسيلة الدفع:</strong> ${paymentMethodText}</span>
+                <span style="font-weight: 800;">${paymentStatusBadge}</span>
+            </div>
+            
+            ${notes ? `
+                <div style="margin-top: 6px; border: 1px dashed #000; padding: 4px; border-radius: 4px; font-size: 10px;">
+                    <strong>ملاحظات العميل:</strong> ${notes}
+                </div>
+            ` : ''}
+            
             <div style="border-top: 1px dashed #000; margin: 8px 0 4px 0;"></div>
-            <div style="text-align: center; font-size: 10px; font-weight: 700; direction: rtl;">شكراً لتسوقكم معنا! - <span style="direction: ltr; display: inline-block;">Quick Delivery</span></div>
+            <div style="text-align: center; font-size: 10px; font-weight: 800;">شكراً لتعاملكم معنا! نتمنى لكم يوماً سعيداً</div>
+            <div style="text-align: center; font-size: 9px; color: #555;">www.quick-service.com</div>
         </div>
     `;
 
+    // Repeat for number of copies
+    let fullPrintHtml = '';
+    for (let c = 0; c < copies; c++) {
+        fullPrintHtml += singleReceiptHtml;
+        if (c < copies - 1) {
+            fullPrintHtml += `
+                <div style="page-break-after: always; height: 16px; border-bottom: 2px dashed #666; margin: 16px 0; text-align: center; font-size: 9px; color: #666;">
+                    --- نسخة ${c + 2} من ${copies} ---
+                </div>
+            `;
+        }
+    }
+
+    printArea.innerHTML = fullPrintHtml;
+
+    // Inject temporary paper size override style
+    const styleId = 'receipt-dynamic-print-style';
+    let styleEl = document.getElementById(styleId);
+    if (!styleEl) {
+        styleEl = document.createElement('style');
+        styleEl.id = styleId;
+        document.head.appendChild(styleEl);
+    }
+    const maxWidth = paperSize === '58mm' ? '58mm' : (paperSize === 'a4' ? '180mm' : '80mm');
+    styleEl.textContent = `
+        @media print {
+            #thermal-receipt-print-area {
+                display: block !important;
+                max-width: ${maxWidth} !important;
+                margin: 0 auto !important;
+                padding: ${paperSize === '58mm' ? '3mm' : '5mm'} !important;
+            }
+        }
+    `;
+
+    // Trigger Print
     window.print();
+
+    // Show success feedback
+    showToast(isAr ? 'تم إرسال الفاتورة للطباعة بنجاح!' : 'Invoice sent to printer successfully!', 'success');
+}
+
+/**
+ * Interactive Receipt Preview & Print Modal matching Haat Store OrderReceiptDialog
+ * @param {Object} order - Order DTO object
+ */
+export function showOrderReceiptModal(order) {
+    if (!order) return;
+
+    let overlay = document.getElementById('receipt-preview-overlay');
+    if (!overlay) {
+        overlay = createElement('div', ['modal-overlay', 'hidden'], { id: 'receipt-preview-overlay' });
+        document.body.appendChild(overlay);
+    }
+
+    overlay.replaceChildren();
+    overlay.style.display = 'flex';
+    overlay.style.zIndex = '9999999';
+    overlay.classList.remove('hidden');
+
+    const isAr = (typeof getLanguage === 'function' ? getLanguage() : (localStorage.getItem('portal_lang') || 'ar')) === 'ar';
+    let selectedPaperSize = '80mm';
+    let selectedCopies = 1;
+
+    // Card Container
+    const card = createElement('div', ['receipt-modal-card']);
+
+    // 1. Header
+    const header = createElement('div', ['receipt-modal-header']);
+    const titleGroup = createElement('div', ['receipt-modal-title']);
+    titleGroup.appendChild(createElementWithText('span', '🧾', []));
+    titleGroup.appendChild(createElementWithText('span', isAr ? 'معاينة الفاتورة' : 'Receipt Preview', []));
+    header.appendChild(titleGroup);
+
+    const closeBtn = createElementWithText('button', '✕', ['receipt-modal-close-btn'], {
+        type: 'button',
+        title: isAr ? 'إغلاق' : 'Close'
+    });
+    const closeModal = () => {
+        overlay.classList.add('hidden');
+        overlay.style.display = 'none';
+    };
+    closeBtn.addEventListener('click', closeModal);
+    overlay.onclick = (e) => {
+        if (e.target === overlay) closeModal();
+    };
+    header.appendChild(closeBtn);
+    card.appendChild(header);
+
+    // 2. Scrollable Body containing simulated thermal paper
+    const body = createElement('div', ['receipt-modal-body']);
+    const paper = createElement('div', ['receipt-paper', 'paper-80mm']);
+
+    const orderId = order.id || order.orderId || order.code || '1001';
+    let dateStr = '';
+    try {
+        dateStr = order.createdAt ? new Date(order.createdAt).toLocaleString(isAr ? 'ar-EG' : 'en-US') : new Date().toLocaleString(isAr ? 'ar-EG' : 'en-US');
+    } catch (_) {
+        dateStr = new Date().toLocaleString();
+    }
+
+    let storeName = order.storeName || order.vendorName || '';
+    if (!storeName) {
+        const headerNameEl = document.getElementById('header-vendor-name');
+        if (headerNameEl && headerNameEl.textContent && headerNameEl.textContent.trim()) {
+            storeName = headerNameEl.textContent.trim();
+        }
+    }
+    if (!storeName) {
+        try {
+            const userJson = localStorage.getItem('qs_vendor_user') || localStorage.getItem('qs_user');
+            if (userJson) {
+                const parsed = JSON.parse(userJson);
+                storeName = parsed.name || parsed.storeName || '';
+            }
+        } catch (_) {}
+    }
+    if (!storeName) storeName = isAr ? 'خدمة كويك السريعة' : 'Quick Delivery';
+
+    const customerName = order.customerName || (order.user ? order.user.name : '') || (order.creator ? order.creator.name : '') || (isAr ? 'عميل كويك' : 'Customer');
+    const customerPhone = order.customerPhone || (order.user ? order.user.phone : '') || (order.creator ? order.creator.phone : '') || '';
+    const address = order.address || order.deliveryAddress || (order.formattedDeliveryAddress) || '';
+    const items = Array.isArray(order.items) ? order.items : (order.products || order.orderProducts || []);
+
+    let subtotal = 0;
+    const deliveryFee = parseFloat(order.deliveryFee || (order.rawOrder && order.rawOrder.deliveryFee) || 0);
+
+    // Paper Branding Header
+    const branding = createElement('div', ['receipt-branding']);
+    branding.appendChild(createElementWithText('div', '⚡ Quick Delivery - خدمة كويك ⚡', ['receipt-brand-badge']));
+    branding.appendChild(createElementWithText('div', storeName, ['receipt-store-name']));
+    branding.appendChild(createElementWithText('div', isAr ? 'فاتورة ضريبية مبسطة' : 'Simplified Tax Invoice', ['receipt-store-sub']));
+    paper.appendChild(branding);
+
+    paper.appendChild(createElement('div', ['receipt-dashed-line']));
+
+    // Meta Row: Order # + Badge
+    const metaRow1 = createElement('div', ['receipt-meta-row']);
+    metaRow1.appendChild(createElementWithText('span', `${isAr ? 'رقم الطلب:' : 'Order ID:'} #${orderId}`, ['receipt-meta-id']));
+    metaRow1.appendChild(createElementWithText('span', isAr ? 'توصيل سريع' : 'Express Delivery', ['receipt-badge-pill']));
+    paper.appendChild(metaRow1);
+
+    const metaRow2 = createElement('div', ['receipt-meta-row']);
+    metaRow2.appendChild(createElementWithText('span', `${isAr ? 'التاريخ:' : 'Date:'} ${dateStr}`, ['text-secondary'], { style: 'font-size: 11px;' }));
+    paper.appendChild(metaRow2);
+
+    // Customer Info
+    paper.appendChild(createElement('div', ['receipt-dotted-line']));
+    const custRow1 = createElement('div', ['receipt-meta-row']);
+    custRow1.appendChild(createElementWithText('span', `👤 ${customerName}`, ['font-bold']));
+    if (customerPhone) {
+        custRow1.appendChild(createElementWithText('span', `📞 ${customerPhone}`, []));
+    }
+    paper.appendChild(custRow1);
+    if (address) {
+        const addrRow = createElement('div', ['receipt-meta-row'], { style: 'font-size: 11px; color: #475569;' });
+        addrRow.appendChild(createElementWithText('span', `📍 ${address}`));
+        paper.appendChild(addrRow);
+    }
+
+    paper.appendChild(createElement('div', ['receipt-dashed-line']));
+
+    // Items Table
+    const table = createElement('table', ['receipt-table']);
+    const thead = createElement('thead');
+    thead.innerHTML = `
+        <tr style="border-bottom: 1px solid #cbd5e1;">
+            <th style="text-align: right; width: 45%;">${isAr ? 'الصنف' : 'Item'}</th>
+            <th style="text-align: center; width: 15%;">${isAr ? 'الكمية' : 'Qty'}</th>
+            <th style="text-align: center; width: 20%;">${isAr ? 'السعر' : 'Price'}</th>
+            <th style="text-align: left; width: 20%;">${isAr ? 'الإجمالي' : 'Total'}</th>
+        </tr>
+    `;
+    table.appendChild(thead);
+
+    const tbody = createElement('tbody');
+    if (items.length > 0) {
+        items.forEach((item, idx) => {
+            const name = item.name || item.productName || item.title || `${isAr ? 'صنف' : 'Item'} #${idx + 1}`;
+            const qty = parseInt(item.qty || item.quantity || 1);
+            const price = parseFloat(item.price || item.unitPrice || 0);
+            const total = qty * price;
+            subtotal += total;
+
+            const tr = createElement('tr', [], { style: 'border-bottom: 1px dotted #e2e8f0;' });
+            tr.innerHTML = `
+                <td style="text-align: right; font-weight: 700;">${name}</td>
+                <td style="text-align: center;">${qty}</td>
+                <td style="text-align: center;">${price.toFixed(2)}</td>
+                <td style="text-align: left; font-weight: 700;">${total.toFixed(2)} ج.م</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    } else {
+        subtotal = parseFloat(order.totalPrice || 0);
+        const tr = createElement('tr');
+        tr.innerHTML = `<td colspan="4" style="text-align: center; padding: 6px;">${isAr ? 'تفاصيل الطلب' : 'Order details'}</td>`;
+        tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    paper.appendChild(table);
+
+    paper.appendChild(createElement('div', ['receipt-dashed-line']));
+
+    // Financial Breakdown
+    const subtotalRow = createElement('div', ['receipt-meta-row']);
+    subtotalRow.appendChild(createElementWithText('span', isAr ? 'المجموع الفرعي:' : 'Subtotal:'));
+    subtotalRow.appendChild(createElementWithText('span', `${subtotal.toFixed(2)} ج.م`, ['font-bold']));
+    paper.appendChild(subtotalRow);
+
+    const deliveryRow = createElement('div', ['receipt-meta-row']);
+    deliveryRow.appendChild(createElementWithText('span', isAr ? 'رسوم التوصيل:' : 'Delivery Fee:'));
+    deliveryRow.appendChild(createElementWithText('span', `${deliveryFee.toFixed(2)} ج.م`, ['font-bold']));
+    paper.appendChild(deliveryRow);
+
+    const finalTotal = parseFloat(order.finalTotal || order.totalPrice || (subtotal + deliveryFee) || 0);
+    const totalBox = createElement('div', ['receipt-total-box']);
+    totalBox.appendChild(createElementWithText('span', isAr ? 'الإجمالي الكلي:' : 'Grand Total:'));
+    totalBox.appendChild(createElementWithText('span', `${finalTotal.toFixed(2)} ج.م`));
+    paper.appendChild(totalBox);
+
+    // Payment Info
+    const isOnline = (order.rawOrder && order.rawOrder.paymentMethod === 1) || order.paymentMethod === 1;
+    const payRow = createElement('div', ['receipt-meta-row']);
+    payRow.appendChild(createElementWithText('span', `${isAr ? 'وسيلة الدفع:' : 'Payment:'} ${isOnline ? (isAr ? 'دفع إلكتروني' : 'Online') : (isAr ? 'كاش عند الاستلام' : 'Cash')}`));
+    payRow.appendChild(createElementWithText('span', isOnline ? (isAr ? 'مدفوع ✔' : 'PAID ✔') : (isAr ? 'تحصيل كاش' : 'Cash on Delivery'), ['receipt-badge-pill'], {
+        style: isOnline ? 'background: #dcfce7; color: #15803d;' : 'background: #fef3c7; color: #b45309;'
+    }));
+    paper.appendChild(payRow);
+
+    // Notes if present
+    const notes = (order.notes || order.note || '').trim();
+    if (notes) {
+        const notesBox = createElement('div', ['receipt-notes-box']);
+        notesBox.appendChild(createElementWithText('div', isAr ? '📝 ملاحظات العميل:' : '📝 Customer Notes:', ['font-bold']));
+        notesBox.appendChild(createElementWithText('div', notes));
+        paper.appendChild(notesBox);
+    }
+
+    paper.appendChild(createElement('div', ['receipt-dashed-line']));
+    paper.appendChild(createElementWithText('div', isAr ? 'شكراً لتسوقكم معنا!' : 'Thank you for your order!', [], {
+        style: 'text-align: center; font-weight: 800; font-size: 11px; margin-top: 4px;'
+    }));
+    paper.appendChild(createElementWithText('div', 'Quick Delivery - www.quick-service.com', [], {
+        style: 'text-align: center; font-size: 10px; color: #64748b; margin-top: 2px;'
+    }));
+
+    body.appendChild(paper);
+    card.appendChild(body);
+
+    // 3. Footer Controls (Paper Size + Copies + Print/Cancel Buttons)
+    const footer = createElement('div', ['receipt-modal-footer']);
+
+    // Paper Size & Copies Toolbar
+    const controlsRow = createElement('div', ['receipt-controls-row']);
+
+    // Paper Size Selector
+    const sizeGroup = createElement('div', [], { style: 'display: flex; align-items: center; gap: 6px;' });
+    sizeGroup.appendChild(createElementWithText('span', isAr ? 'المقاس:' : 'Size:', [], { style: 'font-size: 11px; font-weight: 700;' }));
+    const pillsWrap = createElement('div', ['receipt-paper-pills']);
+
+    const sizes = [
+        { id: '80mm', label: isAr ? '80 مم' : '80mm' },
+        { id: '58mm', label: isAr ? '58 مم' : '58mm' },
+        { id: 'a4', label: isAr ? 'A4' : 'A4' }
+    ];
+
+    const updatePaperSize = (sizeId) => {
+        selectedPaperSize = sizeId;
+        pillsWrap.querySelectorAll('.receipt-paper-pill').forEach(p => {
+            p.classList.toggle('active', p.dataset.size === sizeId);
+        });
+        paper.className = `receipt-paper paper-${sizeId}`;
+    };
+
+    sizes.forEach(s => {
+        const pill = createElementWithText('button', s.label, ['receipt-paper-pill', s.id === '80mm' ? 'active' : ''], {
+            type: 'button',
+            dataset: { size: s.id }
+        });
+        pill.addEventListener('click', () => updatePaperSize(s.id));
+        pillsWrap.appendChild(pill);
+    });
+    sizeGroup.appendChild(pillsWrap);
+    controlsRow.appendChild(sizeGroup);
+
+    // Copies Selector
+    const copiesGroup = createElement('div', ['receipt-copies-ctrl']);
+    copiesGroup.appendChild(createElementWithText('span', isAr ? 'النسخ:' : 'Copies:', [], { style: 'font-size: 11px; font-weight: 700;' }));
+    
+    const countDisplay = createElementWithText('span', '1', ['receipt-copies-count']);
+    const minusBtn = createElementWithText('button', '-', ['receipt-copy-btn'], { type: 'button' });
+    const plusBtn = createElementWithText('button', '+', ['receipt-copy-btn'], { type: 'button' });
+
+    minusBtn.addEventListener('click', () => {
+        if (selectedCopies > 1) {
+            selectedCopies--;
+            countDisplay.textContent = selectedCopies.toString();
+        }
+    });
+    plusBtn.addEventListener('click', () => {
+        if (selectedCopies < 5) {
+            selectedCopies++;
+            countDisplay.textContent = selectedCopies.toString();
+        }
+    });
+
+    copiesGroup.appendChild(minusBtn);
+    copiesGroup.appendChild(countDisplay);
+    copiesGroup.appendChild(plusBtn);
+    controlsRow.appendChild(copiesGroup);
+
+    footer.appendChild(controlsRow);
+
+    // Buttons
+    const buttonsRow = createElement('div', ['receipt-footer-buttons']);
+    const printBtn = createElementWithText('button', isAr ? '🖨️ طباعة الفاتورة' : '🖨️ Print Invoice', ['receipt-btn-print'], {
+        type: 'button'
+    });
+    printBtn.addEventListener('click', () => {
+        printOrderReceipt(order, {
+            paperSize: selectedPaperSize,
+            copies: selectedCopies
+        });
+    });
+    buttonsRow.appendChild(printBtn);
+
+    const cancelBtn = createElementWithText('button', isAr ? 'إغلاق' : 'Close', ['receipt-btn-close'], {
+        type: 'button'
+    });
+    cancelBtn.addEventListener('click', closeModal);
+    buttonsRow.appendChild(cancelBtn);
+
+    footer.appendChild(buttonsRow);
+    card.appendChild(footer);
+
+    overlay.appendChild(card);
 }
 
 
@@ -1076,6 +1483,15 @@ export function renderOrderView(order, options = {}) {
         container.appendChild(acceptBtn);
     }
 
+    // Print Invoice Button (Modeled after Haat Store OrderDetailsActionButtons)
+    const printInvoiceBtn = createElementWithText('button', isAr ? '🖨️ طباعة الفاتورة' : '🖨️ Print Invoice', ['qs-order-print-btn']);
+    printInvoiceBtn.type = 'button';
+    printInvoiceBtn.title = isAr ? 'طباعة الفاتورة' : 'Print Invoice';
+    printInvoiceBtn.addEventListener('click', () => {
+        showOrderReceiptModal(order);
+    });
+    container.appendChild(printInvoiceBtn);
+
     return container;
 }
 
@@ -1104,6 +1520,18 @@ export function renderDashboardOrderCard(order, options = {}) {
     else if (order.status === 'completed') badgeLabel = isAr ? 'مكتمل' : 'Completed';
     else if (order.status === 'on_the_way') badgeLabel = isAr ? 'في الطريق' : 'On the way';
     headerTop.appendChild(createElementWithText('span', badgeLabel, ['qs-dash-order-badge-compact', 'qs-dash-order-badge-new']));
+    
+    // Quick Print Button (Modeled after Haat Store OrderCard header print icon)
+    const quickPrintBtn = createElementWithText('button', '🖨️', ['qs-dash-quick-print-btn'], {
+        type: 'button',
+        title: isAr ? 'طباعة الفاتورة' : 'Print Invoice'
+    });
+    quickPrintBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        showOrderReceiptModal(order);
+    });
+    headerTop.appendChild(quickPrintBtn);
+
     header.appendChild(headerTop);
 
     // Sub Row: Time + Payment Badge
@@ -1165,6 +1593,16 @@ export function renderDashboardOrderCard(order, options = {}) {
         showOrderDetailsModal(order, options.onAccept);
     });
     actionsRow.appendChild(detailsBtn);
+
+    // Compact Print Button
+    const printCompactBtn = createElementWithText('button', isAr ? '🖨️ طباعة' : '🖨️ Print', ['qs-dash-btn-print-compact']);
+    printCompactBtn.type = 'button';
+    printCompactBtn.title = isAr ? 'طباعة الفاتورة' : 'Print Invoice';
+    printCompactBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        showOrderReceiptModal(order);
+    });
+    actionsRow.appendChild(printCompactBtn);
 
     if (!options.readonly && options.onAccept) {
         const acceptBtn = createElementWithText('button', options.acceptText || (isAr ? '✔ قبول' : '✔ Accept'), ['qs-dash-btn-accept-compact']);

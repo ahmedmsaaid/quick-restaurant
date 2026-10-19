@@ -18,6 +18,14 @@ function notifySubscribers(lang) {
 // Translations Dictionary
 export const translations = {
     en: {
+        "print_invoice": "Print Invoice",
+        "print_compact": "Print",
+        "receipt_preview": "Receipt Preview",
+        "paper_size": "Paper Size",
+        "copies": "Copies",
+        "direct_print": "Print Invoice",
+        "receipt_printed_success": "Invoice sent to printer successfully!",
+
         "rest_login_title": "Restaurant Kitchen Portal Login",
         "rest_login_subtitle": "Sign in to manage kitchen orders, menu items, and preparation times",
         "mkt_login_title": "Supermarket Logistics Portal Login",
@@ -677,6 +685,14 @@ export const translations = {
         "vendor_create_error": "Failed to register store. Please check data requirements."
     },
     ar: {
+        "print_invoice": "طباعة الفاتورة",
+        "print_compact": "طباعة",
+        "receipt_preview": "معاينة الفاتورة",
+        "paper_size": "مقاس الورق",
+        "copies": "عدد النسخ",
+        "direct_print": "طباعة الفاتورة",
+        "receipt_printed_success": "تم إرسال الفاتورة للطباعة بنجاح!",
+
         "rest_login_title": "تسجيل دخول لوحة تحكم المطعم",
         "rest_login_subtitle": "قم بتسجيل الدخول لإدارة طلبات المطبخ، قائمة الطعام، وأوقات التحضير",
         "mkt_login_title": "تسجيل دخول لوحة تحكم السوبر ماركت",

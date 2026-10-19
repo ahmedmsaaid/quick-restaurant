@@ -469,6 +469,12 @@ async function refreshMenu() {
 
 // Refresh Orders from backend
 async function refreshOrders() {
+    if (!myRestaurantId) {
+        const userJson = localStorage.getItem('qs_vendor_user') || localStorage.getItem('qs_user') || localStorage.getItem('user');
+        if (userJson) {
+            try { myRestaurantId = parseInt(JSON.parse(userJson).id); } catch (_) { }
+        }
+    }
     if (!myRestaurantId) return;
     try {
         // Ensure menu is loaded to verify product IDs
@@ -483,25 +489,22 @@ async function refreshOrders() {
                 pageNumber: 1,
                 pageSize: 1000,
                 enablePagination: false,
-                includesPath: ["OrderProducts.Product", "User"],
-                filters: {}
+                includesPath: ["OrderProducts.Product", "Creator", "User"],
+                filters: { UserId: parseInt(myRestaurantId) }
             })
         });
         if (data && data.result) {
             console.log("DEBUG - raw orders from backend:", data.result);
             console.log("DEBUG - myProductIds Set:", Array.from(myProductIds));
             const fetchedOrders = data.result.filter(ord => {
-                if (!ord.products || ord.products.length === 0) {
-                    console.log(`Order ${ord.id} filtered out: products list is empty/null.`);
-                    return false;
+                // Must match this restaurant's userId or products
+                if (ord.userId && parseInt(ord.userId) === parseInt(myRestaurantId)) return true;
+                if (ord.products && ord.products.length > 0) {
+                    return ord.products.some(p => myProductIds.has(p.productId));
                 }
-                const matches = ord.products.some(p => myProductIds.has(p.productId));
-                if (!matches) {
-                    console.log(`Order ${ord.id} filtered out: none of its products (${ord.products.map(p => p.productId).join(',')}) match vendor product IDs.`);
-                }
-                return matches;
+                return false;
             }).map(ord => {
-                const items = ord.products.map(p => {
+                const items = (ord.products || []).map(p => {
                     const menuItem = restaurantMenu.find(m => m.id === p.productId.toString());
                     const mods = menuItem ? menuItem.modifiers.map(m => m.name) : [];
                     return {
@@ -522,8 +525,8 @@ async function refreshOrders() {
                     finalTotal: ord.totalPrice,
                     paymentMethod: ord.paymentMethod || (ord.rawOrder && ord.rawOrder.paymentMethod) || 0,
                     notes: ord.note || ord.notes || '',
-                    customerName: ord.user ? ord.user.name : (getLanguage() === 'ar' ? 'عميل' : 'Customer'),
-                    customerPhone: ord.user ? ord.user.phone : '',
+                    customerName: ord.creator ? ord.creator.name : (ord.user && ord.user.role === 2 ? ord.user.name : (getLanguage() === 'ar' ? 'عميل' : 'Customer')),
+                    customerPhone: ord.creator ? ord.creator.phone : (ord.user && ord.user.role === 2 ? ord.user.phone : ''),
                     createdAt: ord.createdAt,
                     prepTime: 20,
                     captainName: '',
@@ -1351,6 +1354,17 @@ function renderProgressTab(parent) {
                     footer.appendChild(ui.createElementWithText('span', t('rest_progress_delivered'), [], { style: 'color: var(--color-success); font-weight: bold;' }));
                 }
                 
+                // Quick print button on Kanban footer
+                const kanbanPrintBtn = ui.createElementWithText('button', '🖨️', ['btn', 'btn-secondary', 'btn-xs'], {
+                    title: t('print_invoice') || 'طباعة الفاتورة',
+                    style: 'padding: 0.3rem 0.55rem; font-size: 0.82rem; margin-inline-start: auto; border-radius: 6px;'
+                });
+                kanbanPrintBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    ui.showOrderReceiptModal(ord);
+                });
+                footer.appendChild(kanbanPrintBtn);
+
                 card.appendChild(footer);
                 
                 card.addEventListener('click', () => {
