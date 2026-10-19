@@ -57,6 +57,101 @@ export function createElementWithText(tag, text, classes = [], attributes = {}) 
 }
 
 /**
+ * Helper to reliably extract order items from various formats returned by API or local state
+ */
+export function extractOrderItems(order = {}) {
+    if (!order) return [];
+
+    // 1. Direct arrays on order
+    let rawList = [];
+    if (Array.isArray(order.items) && order.items.length > 0) {
+        rawList = order.items;
+    } else if (Array.isArray(order.products) && order.products.length > 0) {
+        rawList = order.products;
+    } else if (Array.isArray(order.orderProducts) && order.orderProducts.length > 0) {
+        rawList = order.orderProducts;
+    } else if (Array.isArray(order.OrderProducts) && order.OrderProducts.length > 0) {
+        rawList = order.OrderProducts;
+    } else if (order.rawOrder) {
+        const ro = order.rawOrder;
+        if (Array.isArray(ro.products) && ro.products.length > 0) rawList = ro.products;
+        else if (Array.isArray(ro.orderProducts) && ro.orderProducts.length > 0) rawList = ro.orderProducts;
+        else if (Array.isArray(ro.OrderProducts) && ro.OrderProducts.length > 0) rawList = ro.OrderProducts;
+        else if (Array.isArray(ro.items) && ro.items.length > 0) rawList = ro.items;
+    }
+
+    if (!Array.isArray(rawList) || rawList.length === 0) {
+        return [];
+    }
+
+    const isAr = (typeof getLanguage === 'function' ? getLanguage() : (localStorage.getItem('portal_lang') || 'ar')) === 'ar';
+
+    return rawList.map((item, idx) => {
+        // Resolve item name
+        let name = '';
+        if (item.name && typeof item.name === 'string' && item.name.trim()) name = item.name.trim();
+        else if (item.productName && typeof item.productName === 'string' && item.productName.trim()) name = item.productName.trim();
+        else if (item.title && typeof item.title === 'string' && item.title.trim()) name = item.title.trim();
+        else if (item.product && typeof item.product === 'object') {
+            name = item.product.name || item.product.productName || item.product.title || '';
+        } else if (item.Product && typeof item.Product === 'object') {
+            name = item.Product.name || item.Product.productName || item.Product.title || '';
+        }
+
+        if (!name) {
+            name = `${isAr ? 'صنف' : 'Item'} #${idx + 1}`;
+        }
+
+        // Resolve quantity
+        const qty = parseInt(item.qty || item.quantity || item.count || (item.product && item.product.quantity) || 1) || 1;
+
+        // Resolve unit price
+        let price = 0;
+        if (item.price !== undefined && item.price !== null) price = parseFloat(item.price);
+        else if (item.unitPrice !== undefined && item.unitPrice !== null) price = parseFloat(item.unitPrice);
+        else if (item.totalPrice !== undefined && item.totalPrice !== null && qty > 0) price = parseFloat(item.totalPrice) / qty;
+        else if (item.product && item.product.price !== undefined) price = parseFloat(item.product.price);
+        else if (item.Product && item.Product.price !== undefined) price = parseFloat(item.Product.price);
+
+        return {
+            name,
+            qty,
+            price: isNaN(price) ? 0 : price,
+            image: item.image || item.photo || (item.product && (item.product.photo || item.product.image)) || '',
+            productId: item.productId || item.id
+        };
+    });
+}
+
+/**
+ * Format date string into a clean Arabic/English readable string
+ */
+function formatReceiptDate(dateVal, isAr) {
+    if (!dateVal) {
+        dateVal = new Date();
+    }
+    const d = new Date(dateVal);
+    if (isNaN(d.getTime())) {
+        return String(dateVal);
+    }
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    let hours = d.getHours();
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    const seconds = String(d.getSeconds()).padStart(2, '0');
+    const ampm = hours >= 12 ? (isAr ? 'م' : 'PM') : (isAr ? 'ص' : 'AM');
+    hours = hours % 12;
+    hours = hours ? hours : 12; // 0 becomes 12
+    const hoursStr = String(hours).padStart(2, '0');
+
+    if (isAr) {
+        return `${year}/${month}/${day} - ${hoursStr}:${minutes}:${seconds} ${ampm}`;
+    }
+    return `${year}-${month}-${day} ${hoursStr}:${minutes}:${seconds} ${ampm}`;
+}
+
+/**
  * POS Thermal Receipt Printer for Handheld POS (Sunmi V2 Pro), Bluetooth Printers & Web Browsers
  * Modeled directly after Haat Store's thermal printing architecture
  * @param {Object} order - The order DTO or raw order
@@ -70,12 +165,7 @@ export function printOrderReceipt(order = {}, options = {}) {
     const isAr = (typeof getLanguage === 'function' ? getLanguage() : (localStorage.getItem('portal_lang') || 'ar')) === 'ar';
 
     const orderId = order.id || order.orderId || order.code || '1001';
-    let dateStr = '';
-    try {
-        dateStr = order.createdAt ? new Date(order.createdAt).toLocaleString(isAr ? 'ar-EG' : 'en-US') : new Date().toLocaleString(isAr ? 'ar-EG' : 'en-US');
-    } catch (_) {
-        dateStr = new Date().toLocaleString();
-    }
+    const dateStr = formatReceiptDate(order.createdAt || (order.rawOrder && order.rawOrder.createdAt) || (order.rawOrder && order.rawOrder.createdOn), isAr);
 
     // Determine store name from order, DOM header, or cached vendor profile
     let storeName = order.storeName || order.vendorName || '';
@@ -95,21 +185,23 @@ export function printOrderReceipt(order = {}, options = {}) {
         } catch (_) {}
     }
     if (!storeName) {
-        storeName = isAr ? 'خدمة كويك السريعة' : 'Quick Delivery';
+        storeName = isAr ? 'كويك للتوصيل السريع' : 'Quick Delivery';
     }
 
-    const customerName = order.customerName || (order.user ? order.user.name : '') || (order.creator ? order.creator.name : '') || (isAr ? 'عميل كويك' : 'Customer');
-    const customerPhone = order.customerPhone || (order.user ? order.user.phone : '') || (order.creator ? order.creator.phone : '') || '';
-    const address = order.address || order.deliveryAddress || (order.formattedDeliveryAddress) || '';
-    const items = Array.isArray(order.items) ? order.items : (order.products || order.orderProducts || []);
+    const customerName = order.customerName || (order.user ? order.user.name : '') || (order.creator ? order.creator.name : '') || (order.rawOrder && order.rawOrder.creator ? order.rawOrder.creator.name : '') || (order.rawOrder && order.rawOrder.user ? order.rawOrder.user.name : '') || (isAr ? 'عميل كويك' : 'Customer');
+    const customerPhone = order.customerPhone || (order.user ? order.user.phone : '') || (order.creator ? order.creator.phone : '') || (order.rawOrder && order.rawOrder.creator ? order.rawOrder.creator.phone : '') || (order.rawOrder && order.rawOrder.user ? order.rawOrder.user.phone : '') || '';
+    const address = order.address || order.deliveryAddress || order.formattedDeliveryAddress || (order.rawOrder && order.rawOrder.address) || '';
+    
+    // Extract items using resilient extractor
+    const items = extractOrderItems(order);
 
     let subtotal = 0;
     let itemsHtml = '';
     if (items.length > 0) {
-        items.forEach((item, idx) => {
-            const name = item.name || item.productName || item.title || `${isAr ? 'صنف' : 'Item'} #${idx + 1}`;
-            const qty = parseInt(item.qty || item.quantity || 1);
-            const price = parseFloat(item.price || item.unitPrice || 0);
+        items.forEach((item) => {
+            const name = item.name;
+            const qty = item.qty;
+            const price = item.price;
             const itemTotal = (price * qty).toFixed(2);
             subtotal += price * qty;
             itemsHtml += `
@@ -117,12 +209,12 @@ export function printOrderReceipt(order = {}, options = {}) {
                     <td style="padding: 4px 2px; text-align: right; font-weight: 700;">${name}</td>
                     <td style="padding: 4px 2px; text-align: center;">${qty}</td>
                     <td style="padding: 4px 2px; text-align: center;">${price.toFixed(2)}</td>
-                    <td style="padding: 4px 2px; text-align: left; font-weight: 700;">${itemTotal} ج.م</td>
+                    <td style="padding: 4px 2px; text-align: left; font-weight: 700;">${itemTotal} ${isAr ? 'ج.م' : 'EGP'}</td>
                 </tr>
             `;
         });
     } else {
-        subtotal = parseFloat(order.totalPrice || 0);
+        subtotal = parseFloat(order.totalPrice || (order.rawOrder && order.rawOrder.totalPrice) || 0);
         itemsHtml = `
             <tr style="border-bottom: 1px dashed #cbd5e1;">
                 <td colspan="4" style="padding: 6px 0; text-align: center;">${isAr ? `طلب #${orderId}` : `Order #${orderId}`}</td>
@@ -131,11 +223,12 @@ export function printOrderReceipt(order = {}, options = {}) {
     }
 
     const deliveryFee = parseFloat(order.deliveryFee || (order.rawOrder && order.rawOrder.deliveryFee) || 0);
-    const finalTotal = parseFloat(order.finalTotal || order.totalPrice || (subtotal + deliveryFee) || 0);
-    const isOnline = (order.rawOrder && order.rawOrder.paymentMethod === 1) || order.paymentMethod === 1;
+    const finalTotal = parseFloat(order.finalTotal || order.totalPrice || (order.rawOrder && order.rawOrder.totalPrice) || (subtotal + deliveryFee) || 0);
+    
+    const isOnline = (order.rawOrder && order.rawOrder.paymentMethod === 1) || order.paymentMethod === 1 || String(order.paymentMethod).toLowerCase().includes('online');
     const paymentMethodText = isOnline ? (isAr ? 'دفع إلكتروني' : 'Online Payment') : (isAr ? 'كاش عند الاستلام' : 'Cash on Delivery');
     const paymentStatusBadge = isOnline ? (isAr ? '[مدفوع]' : '[PAID]') : (isAr ? '[غير مدفوع]' : '[UNPAID]');
-    const notes = (order.notes || order.note || '').trim();
+    const notes = (order.notes || order.note || (order.rawOrder && (order.rawOrder.notes || order.rawOrder.note)) || '').trim();
 
     let printArea = document.getElementById('thermal-receipt-print-area');
     if (!printArea) {
@@ -157,26 +250,26 @@ export function printOrderReceipt(order = {}, options = {}) {
             <div style="border-top: 1px dashed #000; margin: 6px 0;"></div>
             
             <div style="display: flex; justify-content: space-between; font-weight: 800; font-size: 12px;">
-                <span>رقم الطلب: #${orderId}</span>
-                <span>توصيل</span>
+                <span>${isAr ? 'رقم الطلب:' : 'Order No:'} #${orderId}</span>
+                <span>${isAr ? 'توصيل' : 'Delivery'}</span>
             </div>
-            <div style="font-size: 10px; color: #333; margin-top: 2px;">التاريخ: ${dateStr}</div>
+            <div style="font-size: 10px; color: #333; margin-top: 2px;">${isAr ? 'التاريخ:' : 'Date:'} ${dateStr}</div>
             
             <div style="border-top: 1px dashed #000; margin: 6px 0;"></div>
             
-            <div><strong>العميل:</strong> ${customerName}</div>
-            ${customerPhone ? `<div><strong>الهاتف:</strong> ${customerPhone}</div>` : ''}
-            ${address ? `<div><strong>العنوان:</strong> ${address}</div>` : ''}
+            <div><strong>${isAr ? 'العميل:' : 'Customer:'}</strong> ${customerName}</div>
+            ${customerPhone ? `<div><strong>${isAr ? 'الهاتف:' : 'Phone:'}</strong> ${customerPhone}</div>` : ''}
+            ${address ? `<div><strong>${isAr ? 'العنوان:' : 'Address:'}</strong> ${address}</div>` : ''}
             
             <div style="border-top: 1px dashed #000; margin: 6px 0;"></div>
             
             <table style="width: 100%; border-collapse: collapse; font-size: ${paperSize === '58mm' ? '9.5px' : '10.5px'};">
                 <thead>
                     <tr style="border-bottom: 1px solid #000;">
-                        <th style="text-align: right; padding-bottom: 4px;">الصنف</th>
-                        <th style="text-align: center; padding-bottom: 4px;">العدد</th>
-                        <th style="text-align: center; padding-bottom: 4px;">السعر</th>
-                        <th style="text-align: left; padding-bottom: 4px;">المجموع</th>
+                        <th style="text-align: right; padding-bottom: 4px;">${isAr ? 'الصنف' : 'Item'}</th>
+                        <th style="text-align: center; padding-bottom: 4px;">${isAr ? 'العدد' : 'Qty'}</th>
+                        <th style="text-align: center; padding-bottom: 4px;">${isAr ? 'السعر' : 'Price'}</th>
+                        <th style="text-align: left; padding-bottom: 4px;">${isAr ? 'المجموع' : 'Total'}</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -187,34 +280,34 @@ export function printOrderReceipt(order = {}, options = {}) {
             <div style="border-top: 1px dashed #000; margin: 6px 0;"></div>
             
             <div style="display: flex; justify-content: space-between;">
-                <span>المجموع الفرعي:</span>
-                <span style="font-weight: 700;">${subtotal.toFixed(2)} ج.م</span>
+                <span>${isAr ? 'المجموع الفرعي:' : 'Subtotal:'}</span>
+                <span style="font-weight: 700;">${subtotal.toFixed(2)} ${isAr ? 'ج.م' : 'EGP'}</span>
             </div>
             <div style="display: flex; justify-content: space-between;">
-                <span>رسوم التوصيل:</span>
-                <span style="font-weight: 700;">${deliveryFee.toFixed(2)} ج.م</span>
+                <span>${isAr ? 'رسوم التوصيل:' : 'Delivery Fee:'}</span>
+                <span style="font-weight: 700;">${deliveryFee.toFixed(2)} ${isAr ? 'ج.م' : 'EGP'}</span>
             </div>
             
             <div style="border-top: 1px solid #000; margin: 4px 0;"></div>
             
             <div style="display: flex; justify-content: space-between; font-weight: 900; font-size: 13px; background: #eee; padding: 4px;">
-                <span>الإجمالي الكلي:</span>
-                <span>${finalTotal.toFixed(2)} ج.م</span>
+                <span>${isAr ? 'الإجمالي الكلي:' : 'Grand Total:'}</span>
+                <span>${finalTotal.toFixed(2)} ${isAr ? 'ج.م' : 'EGP'}</span>
             </div>
             
             <div style="margin-top: 6px; display: flex; justify-content: space-between;">
-                <span><strong>وسيلة الدفع:</strong> ${paymentMethodText}</span>
+                <span><strong>${isAr ? 'وسيلة الدفع:' : 'Payment Method:'}</strong> ${paymentMethodText}</span>
                 <span style="font-weight: 800;">${paymentStatusBadge}</span>
             </div>
             
             ${notes ? `
                 <div style="margin-top: 6px; border: 1px dashed #000; padding: 4px; border-radius: 4px; font-size: 10px;">
-                    <strong>ملاحظات العميل:</strong> ${notes}
+                    <strong>${isAr ? 'ملاحظات العميل:' : 'Customer Notes:'}</strong> ${notes}
                 </div>
             ` : ''}
             
             <div style="border-top: 1px dashed #000; margin: 8px 0 4px 0;"></div>
-            <div style="text-align: center; font-size: 10px; font-weight: 800;">شكراً لتعاملكم معنا! نتمنى لكم يوماً سعيداً</div>
+            <div style="text-align: center; font-size: 10px; font-weight: 800;">${isAr ? 'شكراً لتعاملكم معنا! نتمنى لكم يوماً سعيداً' : 'Thank you for choosing us!'}</div>
             <div style="text-align: center; font-size: 9px; color: #555;">www.quick-service.com</div>
         </div>
     `;
@@ -226,7 +319,7 @@ export function printOrderReceipt(order = {}, options = {}) {
         if (c < copies - 1) {
             fullPrintHtml += `
                 <div style="page-break-after: always; height: 16px; border-bottom: 2px dashed #666; margin: 16px 0; text-align: center; font-size: 9px; color: #666;">
-                    --- نسخة ${c + 2} من ${copies} ---
+                    --- ${isAr ? `نسخة ${c + 2} من ${copies}` : `Copy ${c + 2} of ${copies}`} ---
                 </div>
             `;
         }
@@ -245,11 +338,52 @@ export function printOrderReceipt(order = {}, options = {}) {
     const maxWidth = paperSize === '58mm' ? '58mm' : (paperSize === 'a4' ? '180mm' : '80mm');
     styleEl.textContent = `
         @media print {
+            @page {
+                size: auto;
+                margin: 0;
+            }
+            html, body {
+                height: auto !important;
+                min-height: 0 !important;
+                background: #ffffff !important;
+                color: #000000 !important;
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+            header,
+            .portal-header,
+            .header-right,
+            .header-center,
+            .header-left,
+            .workspace-container,
+            .modal-overlay,
+            #receipt-preview-overlay,
+            #modal-overlay,
+            .mobile-bottom-nav,
+            .sidebar,
+            aside,
+            main,
+            body > *:not(#thermal-receipt-print-area) {
+                display: none !important;
+                visibility: hidden !important;
+                height: 0 !important;
+                max-height: 0 !important;
+                overflow: hidden !important;
+                position: absolute !important;
+                top: -9999px !important;
+                left: -9999px !important;
+            }
             #thermal-receipt-print-area {
                 display: block !important;
+                visibility: visible !important;
+                position: static !important;
+                width: 100% !important;
                 max-width: ${maxWidth} !important;
                 margin: 0 auto !important;
                 padding: ${paperSize === '58mm' ? '3mm' : '5mm'} !important;
+                box-sizing: border-box !important;
+                background: #ffffff !important;
+                color: #000000 !important;
             }
         }
     `;
@@ -313,12 +447,7 @@ export function showOrderReceiptModal(order) {
     const paper = createElement('div', ['receipt-paper', 'paper-80mm']);
 
     const orderId = order.id || order.orderId || order.code || '1001';
-    let dateStr = '';
-    try {
-        dateStr = order.createdAt ? new Date(order.createdAt).toLocaleString(isAr ? 'ar-EG' : 'en-US') : new Date().toLocaleString(isAr ? 'ar-EG' : 'en-US');
-    } catch (_) {
-        dateStr = new Date().toLocaleString();
-    }
+    const dateStr = formatReceiptDate(order.createdAt || (order.rawOrder && order.rawOrder.createdAt) || (order.rawOrder && order.rawOrder.createdOn), isAr);
 
     let storeName = order.storeName || order.vendorName || '';
     if (!storeName) {
@@ -336,21 +465,23 @@ export function showOrderReceiptModal(order) {
             }
         } catch (_) {}
     }
-    if (!storeName) storeName = isAr ? 'خدمة كويك السريعة' : 'Quick Delivery';
+    if (!storeName) storeName = isAr ? 'كويك للتوصيل السريع' : 'Quick Delivery';
 
-    const customerName = order.customerName || (order.user ? order.user.name : '') || (order.creator ? order.creator.name : '') || (isAr ? 'عميل كويك' : 'Customer');
-    const customerPhone = order.customerPhone || (order.user ? order.user.phone : '') || (order.creator ? order.creator.phone : '') || '';
-    const address = order.address || order.deliveryAddress || (order.formattedDeliveryAddress) || '';
-    const items = Array.isArray(order.items) ? order.items : (order.products || order.orderProducts || []);
+    const customerName = order.customerName || (order.user ? order.user.name : '') || (order.creator ? order.creator.name : '') || (order.rawOrder && order.rawOrder.creator ? order.rawOrder.creator.name : '') || (order.rawOrder && order.rawOrder.user ? order.rawOrder.user.name : '') || (isAr ? 'عميل كويك' : 'Customer');
+    const customerPhone = order.customerPhone || (order.user ? order.user.phone : '') || (order.creator ? order.creator.phone : '') || (order.rawOrder && order.rawOrder.creator ? order.rawOrder.creator.phone : '') || (order.rawOrder && order.rawOrder.user ? order.rawOrder.user.phone : '') || '';
+    const address = order.address || order.deliveryAddress || order.formattedDeliveryAddress || (order.rawOrder && order.rawOrder.address) || '';
+    
+    // Extract items using resilient extractor
+    const items = extractOrderItems(order);
 
     let subtotal = 0;
     const deliveryFee = parseFloat(order.deliveryFee || (order.rawOrder && order.rawOrder.deliveryFee) || 0);
 
     // Paper Branding Header
     const branding = createElement('div', ['receipt-branding']);
-    branding.appendChild(createElementWithText('div', '⚡ Quick Delivery - خدمة كويك ⚡', ['receipt-brand-badge']));
+    branding.appendChild(createElementWithText('div', '⚡ Quick Delivery - كويك للتوصيل ⚡', ['receipt-brand-badge']));
     branding.appendChild(createElementWithText('div', storeName, ['receipt-store-name']));
-    branding.appendChild(createElementWithText('div', isAr ? 'فاتورة ضريبية مبسطة' : 'Simplified Tax Invoice', ['receipt-store-sub']));
+    branding.appendChild(createElementWithText('div', isAr ? 'فاتورة طلب مبسطة' : 'Simplified Order Invoice', ['receipt-store-sub']));
     paper.appendChild(branding);
 
     paper.appendChild(createElement('div', ['receipt-dashed-line']));
@@ -358,7 +489,7 @@ export function showOrderReceiptModal(order) {
     // Meta Row: Order # + Badge
     const metaRow1 = createElement('div', ['receipt-meta-row']);
     metaRow1.appendChild(createElementWithText('span', `${isAr ? 'رقم الطلب:' : 'Order ID:'} #${orderId}`, ['receipt-meta-id']));
-    metaRow1.appendChild(createElementWithText('span', isAr ? 'توصيل سريع' : 'Express Delivery', ['receipt-badge-pill']));
+    metaRow1.appendChild(createElementWithText('span', isAr ? 'توصيل' : 'Delivery', ['receipt-badge-pill']));
     paper.appendChild(metaRow1);
 
     const metaRow2 = createElement('div', ['receipt-meta-row']);
@@ -387,19 +518,19 @@ export function showOrderReceiptModal(order) {
     thead.innerHTML = `
         <tr style="border-bottom: 1px solid #cbd5e1;">
             <th style="text-align: right; width: 45%;">${isAr ? 'الصنف' : 'Item'}</th>
-            <th style="text-align: center; width: 15%;">${isAr ? 'الكمية' : 'Qty'}</th>
+            <th style="text-align: center; width: 15%;">${isAr ? 'العدد' : 'Qty'}</th>
             <th style="text-align: center; width: 20%;">${isAr ? 'السعر' : 'Price'}</th>
-            <th style="text-align: left; width: 20%;">${isAr ? 'الإجمالي' : 'Total'}</th>
+            <th style="text-align: left; width: 20%;">${isAr ? 'المجموع' : 'Total'}</th>
         </tr>
     `;
     table.appendChild(thead);
 
     const tbody = createElement('tbody');
     if (items.length > 0) {
-        items.forEach((item, idx) => {
-            const name = item.name || item.productName || item.title || `${isAr ? 'صنف' : 'Item'} #${idx + 1}`;
-            const qty = parseInt(item.qty || item.quantity || 1);
-            const price = parseFloat(item.price || item.unitPrice || 0);
+        items.forEach((item) => {
+            const name = item.name;
+            const qty = item.qty;
+            const price = item.price;
             const total = qty * price;
             subtotal += total;
 
@@ -408,14 +539,14 @@ export function showOrderReceiptModal(order) {
                 <td style="text-align: right; font-weight: 700;">${name}</td>
                 <td style="text-align: center;">${qty}</td>
                 <td style="text-align: center;">${price.toFixed(2)}</td>
-                <td style="text-align: left; font-weight: 700;">${total.toFixed(2)} ج.م</td>
+                <td style="text-align: left; font-weight: 700;">${total.toFixed(2)} ${isAr ? 'ج.م' : 'EGP'}</td>
             `;
             tbody.appendChild(tr);
         });
     } else {
-        subtotal = parseFloat(order.totalPrice || 0);
+        subtotal = parseFloat(order.totalPrice || (order.rawOrder && order.rawOrder.totalPrice) || 0);
         const tr = createElement('tr');
-        tr.innerHTML = `<td colspan="4" style="text-align: center; padding: 6px;">${isAr ? 'تفاصيل الطلب' : 'Order details'}</td>`;
+        tr.innerHTML = `<td colspan="4" style="text-align: center; padding: 6px;">${isAr ? `طلب #${orderId}` : `Order #${orderId}`}</td>`;
         tbody.appendChild(tr);
     }
     table.appendChild(tbody);
@@ -426,31 +557,31 @@ export function showOrderReceiptModal(order) {
     // Financial Breakdown
     const subtotalRow = createElement('div', ['receipt-meta-row']);
     subtotalRow.appendChild(createElementWithText('span', isAr ? 'المجموع الفرعي:' : 'Subtotal:'));
-    subtotalRow.appendChild(createElementWithText('span', `${subtotal.toFixed(2)} ج.م`, ['font-bold']));
+    subtotalRow.appendChild(createElementWithText('span', `${subtotal.toFixed(2)} ${isAr ? 'ج.م' : 'EGP'}`, ['font-bold']));
     paper.appendChild(subtotalRow);
 
     const deliveryRow = createElement('div', ['receipt-meta-row']);
     deliveryRow.appendChild(createElementWithText('span', isAr ? 'رسوم التوصيل:' : 'Delivery Fee:'));
-    deliveryRow.appendChild(createElementWithText('span', `${deliveryFee.toFixed(2)} ج.م`, ['font-bold']));
+    deliveryRow.appendChild(createElementWithText('span', `${deliveryFee.toFixed(2)} ${isAr ? 'ج.م' : 'EGP'}`, ['font-bold']));
     paper.appendChild(deliveryRow);
 
-    const finalTotal = parseFloat(order.finalTotal || order.totalPrice || (subtotal + deliveryFee) || 0);
+    const finalTotal = parseFloat(order.finalTotal || order.totalPrice || (order.rawOrder && order.rawOrder.totalPrice) || (subtotal + deliveryFee) || 0);
     const totalBox = createElement('div', ['receipt-total-box']);
     totalBox.appendChild(createElementWithText('span', isAr ? 'الإجمالي الكلي:' : 'Grand Total:'));
-    totalBox.appendChild(createElementWithText('span', `${finalTotal.toFixed(2)} ج.م`));
+    totalBox.appendChild(createElementWithText('span', `${finalTotal.toFixed(2)} ${isAr ? 'ج.م' : 'EGP'}`));
     paper.appendChild(totalBox);
 
     // Payment Info
-    const isOnline = (order.rawOrder && order.rawOrder.paymentMethod === 1) || order.paymentMethod === 1;
+    const isOnline = (order.rawOrder && order.rawOrder.paymentMethod === 1) || order.paymentMethod === 1 || String(order.paymentMethod).toLowerCase().includes('online');
     const payRow = createElement('div', ['receipt-meta-row']);
-    payRow.appendChild(createElementWithText('span', `${isAr ? 'وسيلة الدفع:' : 'Payment:'} ${isOnline ? (isAr ? 'دفع إلكتروني' : 'Online') : (isAr ? 'كاش عند الاستلام' : 'Cash')}`));
-    payRow.appendChild(createElementWithText('span', isOnline ? (isAr ? 'مدفوع ✔' : 'PAID ✔') : (isAr ? 'تحصيل كاش' : 'Cash on Delivery'), ['receipt-badge-pill'], {
-        style: isOnline ? 'background: #dcfce7; color: #15803d;' : 'background: #fef3c7; color: #b45309;'
+    payRow.appendChild(createElementWithText('span', `${isAr ? 'وسيلة الدفع:' : 'Payment:'} ${isOnline ? (isAr ? 'دفع إلكتروني' : 'Online') : (isAr ? 'كاش عند الاستلام' : 'Cash on Delivery')}`));
+    payRow.appendChild(createElementWithText('span', isOnline ? (isAr ? '[مدفوع]' : '[PAID]') : (isAr ? '[غير مدفوع]' : '[UNPAID]'), ['receipt-badge-pill'], {
+        style: isOnline ? 'background: #dcfce7; color: #15803d; font-weight: 800;' : 'background: #fef3c7; color: #b45309; font-weight: 800;'
     }));
     paper.appendChild(payRow);
 
     // Notes if present
-    const notes = (order.notes || order.note || '').trim();
+    const notes = (order.notes || order.note || (order.rawOrder && (order.rawOrder.notes || order.rawOrder.note)) || '').trim();
     if (notes) {
         const notesBox = createElement('div', ['receipt-notes-box']);
         notesBox.appendChild(createElementWithText('div', isAr ? '📝 ملاحظات العميل:' : '📝 Customer Notes:', ['font-bold']));
@@ -459,7 +590,7 @@ export function showOrderReceiptModal(order) {
     }
 
     paper.appendChild(createElement('div', ['receipt-dashed-line']));
-    paper.appendChild(createElementWithText('div', isAr ? 'شكراً لتسوقكم معنا!' : 'Thank you for your order!', [], {
+    paper.appendChild(createElementWithText('div', isAr ? 'شكراً لتعاملكم معنا! نتمنى لكم يوماً سعيداً' : 'Thank you for choosing us!', [], {
         style: 'text-align: center; font-weight: 800; font-size: 11px; margin-top: 4px;'
     }));
     paper.appendChild(createElementWithText('div', 'Quick Delivery - www.quick-service.com', [], {
@@ -1398,13 +1529,13 @@ export function renderOrderView(order, options = {}) {
 
     // 3. Card 2: Items List & Financial Summary
     const card2 = createElement('div', ['qs-order-card']);
-    const items = Array.isArray(order.items) ? order.items : [];
-    card2.appendChild(createElementWithText('div', `الأصناف (${items.length})`, ['qs-order-section-title']));
+    const items = extractOrderItems(order);
+    card2.appendChild(createElementWithText('div', isAr ? `الأصناف (${items.length})` : `Items (${items.length})`, ['qs-order-section-title']));
 
     let subtotal = 0;
     items.forEach(it => {
-        const qty = parseInt(it.qty || it.quantity || 1);
-        const price = parseFloat(it.price || 0);
+        const qty = it.qty || 1;
+        const price = it.price || 0;
         subtotal += qty * price;
 
         const itemBox = createElement('div', ['qs-order-item-box']);
@@ -1566,7 +1697,7 @@ export function renderDashboardOrderCard(order, options = {}) {
     body.appendChild(custRow);
 
     // Items preview
-    const items = Array.isArray(order.items) ? order.items : [];
+    const items = extractOrderItems(order);
     const itemsSummary = items.map(it => `${it.qty || 1}x ${it.name}`).join('، ') || (isAr ? 'لا توجد أصناف' : 'No items');
     const itemsRow = createElement('div', ['qs-dash-order-items-compact']);
     itemsRow.appendChild(createElementWithText('span', `📦 ${items.length} ${isAr ? 'أصناف' : 'items'}: ${itemsSummary}`));

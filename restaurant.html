@@ -46,17 +46,30 @@
             box-shadow: none !important;
             text-shadow: none !important;
         }
-        body > *:not(#thermal-receipt-print-area) {
-            display: none !important;
-        }
+        header,
         .portal-header,
+        .header-right,
+        .header-center,
+        .header-left,
         .workspace-container,
         .modal-overlay,
-        .mobile-bottom-nav,
+        #receipt-preview-overlay,
         #modal-overlay,
+        .mobile-bottom-nav,
+        .sidebar,
+        aside,
+        main,
         .dismiss-alarm-btn,
-        .full-order-overlay {
+        .full-order-overlay,
+        body > *:not(#thermal-receipt-print-area) {
             display: none !important;
+            visibility: hidden !important;
+            height: 0 !important;
+            max-height: 0 !important;
+            overflow: hidden !important;
+            position: absolute !important;
+            top: -9999px !important;
+            left: -9999px !important;
         }
         #thermal-receipt-print-area {
             display: block !important;

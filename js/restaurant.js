@@ -504,15 +504,22 @@ async function refreshOrders() {
                 }
                 return false;
             }).map(ord => {
-                const items = (ord.products || []).map(p => {
-                    const menuItem = restaurantMenu.find(m => m.id === p.productId.toString());
+                const isArLang = (typeof getLanguage === 'function' ? getLanguage() : 'ar') === 'ar';
+                const rawProducts = ord.products || ord.orderProducts || ord.OrderProducts || [];
+                const items = rawProducts.map(p => {
+                    const menuItem = restaurantMenu.find(m => m.id === (p.productId || '').toString());
                     const mods = menuItem ? menuItem.modifiers.map(m => m.name) : [];
+                    let prodName = p.productName || (menuItem ? menuItem.name : '') || (p.product ? (p.product.name || p.product.productName) : '') || (p.Product ? (p.Product.name || p.Product.productName) : '');
+                    if (!prodName) {
+                        prodName = isArLang ? 'وجبة' : 'Dish';
+                    }
                     return {
-                        name: p.productName || (menuItem ? menuItem.name : 'Dish'),
-                        qty: p.quantity,
-                        price: p.price,
+                        name: prodName,
+                        qty: parseInt(p.quantity || p.qty || 1),
+                        price: parseFloat(p.price || (menuItem ? menuItem.price : 0) || 0),
                         image: (menuItem && (menuItem.image || menuItem.photo)) ? (menuItem.image || menuItem.photo) : (p.photo || p.image || ''),
-                        modifiers: mods
+                        modifiers: mods,
+                        productId: p.productId
                     };
                 });
                 return {
