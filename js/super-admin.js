@@ -937,6 +937,7 @@ async function renderCaptainsTab(parent) {
 
                 return {
                     id: cId,
+                    deliveryId: delObj.id ? delObj.id.toString() : (delObj.deliveryId ? delObj.deliveryId.toString() : null),
                     name: c.name || delObj.name || (isAr ? 'كابتن بدون اسم' : 'Unnamed Captain'),
                     phone: c.phone || delObj.phone || '-',
                     email: c.email || delObj.email || '-',
@@ -1064,10 +1065,37 @@ async function renderCaptainsTab(parent) {
         const nameEl = ui.createElementWithText('h4', c.name, [], {
             style: 'margin: 0 0 0.25rem 0; font-size: 1rem; font-weight: 700; color: var(--text-primary); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;'
         });
+
+        // Captain ID Badges Row
+        const idRow = ui.createElement('div', [], {
+            style: 'display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.35rem; flex-wrap: wrap;'
+        });
+        const idBadge = ui.createElement('span', [], {
+            style: 'display: inline-flex; align-items: center; gap: 0.25rem; background: rgba(52, 152, 219, 0.12); color: #3498db; border: 1px solid rgba(52, 152, 219, 0.3); border-radius: 6px; padding: 2px 7px; font-size: 0.76rem; font-weight: 700; font-family: monospace; cursor: pointer;',
+            title: isAr ? 'معرّف الحساب (انقر للنسخ)' : 'User ID (Click to copy)'
+        });
+        idBadge.innerHTML = `🆔 #${c.id} <span style="font-size: 0.68rem; opacity: 0.75;">📋</span>`;
+        idBadge.addEventListener('click', (e) => {
+            e.stopPropagation();
+            navigator.clipboard.writeText(c.id);
+            ui.showToast((isAr ? 'تم نسخ المعرّف: #' : 'Copied ID: #') + c.id, 'info');
+        });
+        idRow.appendChild(idBadge);
+
+        if (c.deliveryId && c.deliveryId !== c.id) {
+            const delIdBadge = ui.createElement('span', [], {
+                style: 'display: inline-flex; align-items: center; background: rgba(155, 89, 182, 0.12); color: #9b59b6; border: 1px solid rgba(155, 89, 182, 0.3); border-radius: 6px; padding: 2px 6px; font-size: 0.72rem; font-weight: 600; font-family: monospace;',
+                title: isAr ? 'معرف الدليفري (Delivery ID)' : 'Delivery ID'
+            });
+            delIdBadge.textContent = `🛵 #${c.deliveryId}`;
+            idRow.appendChild(delIdBadge);
+        }
+
         const phoneEl = ui.createElementWithText('div', `📞 ${c.phone}`, [], { style: 'font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 0.2rem;' });
         const dateEl = ui.createElementWithText('div', `📅 ${c.createdOn}`, [], { style: 'font-size: 0.75rem; color: var(--text-muted);' });
 
         nameDetails.appendChild(nameEl);
+        nameDetails.appendChild(idRow);
         nameDetails.appendChild(phoneEl);
         nameDetails.appendChild(dateEl);
 
@@ -1795,6 +1823,48 @@ async function renderRestaurantList(container) {
                 style: 'display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 1rem;'
             });
 
+            // 🌐 "All Orders" Card
+            const allOrdersCard = ui.createElement('div', [], {
+                style: [
+                    'background: linear-gradient(135deg, rgba(139,92,246,0.18), rgba(59,130,246,0.12))',
+                    'border: 1px solid rgba(139,92,246,0.45)',
+                    'border-radius: var(--radius-md)',
+                    'padding: 1.25rem 1rem',
+                    'cursor: pointer',
+                    'transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s',
+                    'display: flex',
+                    'flex-direction: column',
+                    'gap: 0.5rem',
+                ].join('; ')
+            });
+            allOrdersCard.addEventListener('mouseenter', () => {
+                allOrdersCard.style.transform = 'translateY(-3px)';
+                allOrdersCard.style.borderColor = 'var(--admin-color)';
+                allOrdersCard.style.boxShadow = '0 6px 24px rgba(139,92,246,0.35)';
+            });
+            allOrdersCard.addEventListener('mouseleave', () => {
+                allOrdersCard.style.transform = '';
+                allOrdersCard.style.borderColor = 'rgba(139,92,246,0.45)';
+                allOrdersCard.style.boxShadow = '';
+            });
+            allOrdersCard.appendChild(ui.createElementWithText('div', isAr ? '🌐 جميع الطلبات' : '🌐 All Orders', [], {
+                style: 'font-weight: 800; font-size: 1.05rem; color: #fff;'
+            }));
+            allOrdersCard.appendChild(ui.createElementWithText('div', isAr ? 'كافة المطاعم والمتاجر' : 'All Stores & Restaurants', [], {
+                style: 'font-size: 0.72rem; color: var(--admin-color); font-weight: 700; text-transform: uppercase;'
+            }));
+            allOrdersCard.appendChild(ui.createElementWithText('div', isAr ? 'عرض وإدارة كافة الطلبات بالكامل' : 'View and manage all system orders', [], {
+                style: 'font-size: 0.78rem; color: var(--text-secondary);'
+            }));
+            allOrdersCard.appendChild(ui.createElementWithText('div', isAr ? 'عرض الكل ←' : 'View All →', [], {
+                style: 'margin-top: 0.4rem; font-size: 0.78rem; color: var(--admin-color); font-weight: 700;'
+            }));
+            allOrdersCard.addEventListener('click', () => renderRestaurantOrders(container, {
+                id: 'all',
+                name: isAr ? 'جميع الطلبات' : 'All Orders'
+            }));
+            grid.appendChild(allOrdersCard);
+
             restaurants.forEach(r => {
                 const card = ui.createElement('div', [], {
                     style: [
@@ -1854,11 +1924,12 @@ async function renderRestaurantList(container) {
     await load();
 }
 
-/* ── Level 2: Orders for a specific restaurant ── */
+/* ── Level 2: Orders for a specific restaurant or all orders ── */
 async function renderRestaurantOrders(container, restaurant) {
     container.replaceChildren();
     const isAr = getLanguage() === 'ar';
-    const name = restaurant.name || 'N/A';
+    const isAll = !restaurant || restaurant.id === 'all';
+    const name = restaurant?.name || (isAr ? 'جميع الطلبات' : 'All Orders');
 
     // Top bar with back + title + refresh
     const topRow = ui.createElement('div', [], { style: 'display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;' });
@@ -1882,22 +1953,31 @@ async function renderRestaurantOrders(container, restaurant) {
         loadingEl.textContent = isAr ? 'جاري تحميل الطلبات...' : 'Loading orders...';
 
         try {
-            // 1. Fetch products of this restaurant
-            const productsData = await apiFetch('/api/v1/products/paginate', {
-                method: 'PATCH',
-                body: JSON.stringify({
-                    pageNumber: 1,
-                    pageSize: 1000,
-                    enablePagination: false,
-                    filters: {
-                        creatorId: parseInt(restaurant.id)
+            // 1. Optionally fetch products of this restaurant for supplementary ID matching
+            let restaurantProductIds = new Set();
+            if (!isAll && restaurant?.id) {
+                try {
+                    const vendorNumId = parseInt(restaurant.id);
+                    if (!isNaN(vendorNumId) && vendorNumId > 0) {
+                        const productsData = await apiFetch('/api/v1/products/paginate', {
+                            method: 'PATCH',
+                            body: JSON.stringify({
+                                pageNumber: 1,
+                                pageSize: 100,
+                                enablePagination: true,
+                                filters: {
+                                    creatorId: vendorNumId
+                                }
+                            })
+                        });
+                        restaurantProductIds = new Set(
+                            (productsData?.result || []).map(p => parseInt(p.id))
+                        );
                     }
-                })
-            });
-
-            const restaurantProductIds = new Set(
-                (productsData?.result || []).map(p => parseInt(p.id))
-            );
+                } catch (prodErr) {
+                    console.warn('Could not load vendor products for filter matching, falling back to ID matching:', prodErr);
+                }
+            }
 
             // 2. Fetch all orders
             const data = await apiFetch('/api/v1/orders', {
@@ -1914,38 +1994,51 @@ async function renderRestaurantOrders(container, restaurant) {
             loadingEl.style.display = 'none';
             const rawOrders = data?.result || [];
             
-            // 3. Filter orders in frontend using product IDs
-            const allOrders = rawOrders.filter(o => {
-                if (!o.products || o.products.length === 0) return false;
-                return o.products.some(p => restaurantProductIds.has(parseInt(p.productId)));
+            // 3. Filter orders: if isAll, include all orders; otherwise match by userId, creatorId, user.id, creator.id or products
+            const allOrders = isAll ? rawOrders : rawOrders.filter(o => {
+                const restId = parseInt(restaurant.id);
+                if (!isNaN(restId)) {
+                    if (o.userId && parseInt(o.userId) === restId) return true;
+                    if (o.creatorId && parseInt(o.creatorId) === restId) return true;
+                    if (o.user && parseInt(o.user.id) === restId) return true;
+                    if (o.creator && parseInt(o.creator.id) === restId) return true;
+                }
+                if (restaurantProductIds.size > 0 && o.products && o.products.length > 0) {
+                    return o.products.some(p => restaurantProductIds.has(parseInt(p.productId)));
+                }
+                return false;
             });
 
-            const unaccepted = allOrders.filter(o => o.status === 0);
-            const active     = allOrders.filter(o => o.status >= 1 && o.status <= 6);
-            const completed  = allOrders.filter(o => o.status === 7);
-            const cancelled  = allOrders.filter(o => o.status === 8 || o.status === 9);
+            // Status partitioning - giving Status 2 (Waiting for Driver) its own dedicated first-class group
+            const unaccepted    = allOrders.filter(o => o.status === 0);
+            const pendingDriver = allOrders.filter(o => o.status === 2); // 🛵 بانتظار السائق
+            const inProgress    = allOrders.filter(o => o.status === 1 || (o.status >= 3 && o.status <= 6));
+            const completed     = allOrders.filter(o => o.status === 7);
+            const cancelled     = allOrders.filter(o => o.status === 8 || o.status === 9);
 
             // Summary chips
             const summaryBar = ui.createElement('div', ['orders-summary-bar'], {
                 style: 'display: flex; gap: 0.75rem; flex-wrap: wrap; padding: 0.5rem 0;'
             });
             [
-                { label: isAr ? 'إجمالي' : 'Total',     value: allOrders.length,                   color: 'var(--text-primary)' },
-                { label: isAr ? 'نشطة'   : 'Active',    value: active.length + unaccepted.length,  color: 'var(--admin-color)' },
-                { label: isAr ? 'مكتملة' : 'Completed', value: completed.length,                   color: 'var(--color-success)' },
-                { label: isAr ? 'ملغية'  : 'Cancelled', value: cancelled.length,                   color: 'var(--text-muted)' },
+                { label: isAr ? 'إجمالي' : 'Total',                     value: allOrders.length,     color: 'var(--text-primary)' },
+                { label: isAr ? '🛵 بانتظار السائق' : 'Waiting Driver', value: pendingDriver.length, color: '#e67e22' },
+                { label: isAr ? '⏳ غير مقبولة' : 'Unaccepted',          value: unaccepted.length,    color: 'var(--color-info)' },
+                { label: isAr ? '⚡ قيد التنفيذ' : 'In Progress',         value: inProgress.length,    color: 'var(--admin-color)' },
+                { label: isAr ? '✅ مكتملة' : 'Completed',               value: completed.length,     color: 'var(--color-success)' },
+                { label: isAr ? '❌ ملغية ومرفوضة' : 'Cancelled',        value: cancelled.length,     color: 'var(--text-muted)' },
             ].forEach(item => {
                 const chip = ui.createElement('div', [], {
                     style: 'background: rgba(255,255,255,0.04); border: 1px solid var(--border-color); border-radius: 99px; padding: 0.25rem 0.9rem; display: flex; gap: 0.4rem; align-items: center; font-size: 0.8rem;'
                 });
                 chip.appendChild(ui.createElementWithText('span', item.label, [], { style: 'color: var(--text-secondary);' }));
-                chip.appendChild(ui.createElementWithText('strong', item.value.toString(), [], { style: `color: ${item.color};` }));
+                chip.appendChild(ui.createElementWithText('strong', item.value.toString(), [], { style: `color: ${item.color}; font-weight: 800;` }));
                 summaryBar.appendChild(chip);
             });
             container.appendChild(summaryBar);
 
             if (allOrders.length === 0) {
-                container.appendChild(ui.createElementWithText('div', isAr ? 'لا توجد طلبات لهذا المطعم' : 'No orders for this restaurant', ['text-secondary'], { style: 'text-align: center; padding: 3rem; font-size: 0.9rem;' }));
+                container.appendChild(ui.createElementWithText('div', isAr ? 'لا توجد طلبات لعرضها' : 'No orders found', ['text-secondary'], { style: 'text-align: center; padding: 3rem; font-size: 0.9rem;' }));
                 return;
             }
 
@@ -1956,9 +2049,10 @@ async function renderRestaurantOrders(container, restaurant) {
 
             const columns = [
                 { title: isAr ? '⏳ غير مقبولة' : '⏳ Unaccepted', orders: unaccepted, border: 'var(--color-info)' },
-                { title: isAr ? '⚡ نشطة'       : '⚡ Active',     orders: active,     border: 'var(--admin-color)' },
-                { title: isAr ? '✅ مكتملة'     : '✅ Completed',  orders: completed,  border: 'var(--color-success)' },
-                { title: isAr ? '❌ ملغية'      : '❌ Cancelled',  orders: cancelled,  border: 'var(--text-muted)' },
+                { title: isAr ? '🛵 بانتظار السائق (2)' : '🛵 Waiting Driver (2)', orders: pendingDriver, border: '#e67e22' },
+                { title: isAr ? '⚡ قيد التنفيذ' : '⚡ In Progress', orders: inProgress, border: 'var(--admin-color)' },
+                { title: isAr ? '✅ مكتملة' : '✅ Completed', orders: completed, border: 'var(--color-success)' },
+                { title: isAr ? '❌ ملغية ومرفوضة' : '❌ Cancelled / Rejected', orders: cancelled, border: 'var(--text-muted)' },
             ];
 
             columns.forEach(col => {
@@ -1968,7 +2062,7 @@ async function renderRestaurantOrders(container, restaurant) {
 
                 const colHeader = ui.createElement('div', [], { style: `display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid ${col.border}; padding-bottom: 0.5rem; margin-bottom: 0.25rem;` });
                 colHeader.appendChild(ui.createElementWithText('span', col.title, [], { style: 'font-weight: 700; font-size: 0.85rem;' }));
-                colHeader.appendChild(ui.createElementWithText('span', col.orders.length.toString(), ['badge'], { style: `background: ${col.border}; color: #fff; font-size: 0.7rem;` }));
+                colHeader.appendChild(ui.createElementWithText('span', col.orders.length.toString(), ['badge'], { style: `background: ${col.border}; color: #fff; font-size: 0.7rem; font-weight: 800;` }));
                 colWrapper.appendChild(colHeader);
 
                 const listContainer = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.75rem; max-height: 600px; overflow-y: auto;' });
@@ -1978,19 +2072,42 @@ async function renderRestaurantOrders(container, restaurant) {
                 } else {
                     col.orders.forEach(o => {
                         const card = ui.createElement('div', [], {
-                            style: 'background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 0.75rem; display: flex; flex-direction: column; gap: 0.45rem; font-size: 0.8rem;'
+                            style: 'background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 0.75rem; display: flex; flex-direction: column; gap: 0.45rem; font-size: 0.8rem; cursor: pointer; transition: all 0.2s;'
+                        });
+
+                        card.addEventListener('mouseenter', () => {
+                            card.style.borderColor = col.border || 'var(--admin-color)';
+                            card.style.transform = 'translateY(-2px)';
+                            card.style.boxShadow = '0 4px 12px rgba(0,0,0,0.25)';
+                        });
+                        card.addEventListener('mouseleave', () => {
+                            card.style.borderColor = 'var(--border-color)';
+                            card.style.transform = '';
+                            card.style.boxShadow = '';
                         });
 
                         // Order ID + Status
                         const infoRow = ui.createElement('div', [], { style: 'display: flex; justify-content: space-between; font-weight: 700;' });
-                        infoRow.appendChild(ui.createElementWithText('span', `#${o.id}`, [], { style: 'color: var(--admin-color);' }));
+                        infoRow.appendChild(ui.createElementWithText('span', `#${o.id}`, [], { style: 'color: var(--admin-color); font-size: 0.9rem;' }));
                         const statusInfo = getStatusLabel(o.status);
-                        infoRow.appendChild(ui.createElementWithText('span', statusInfo.text, [], { style: `color: ${statusInfo.color}; font-size: 0.7rem;` }));
+                        infoRow.appendChild(ui.createElementWithText('span', statusInfo.text, [], {
+                            style: `color: ${statusInfo.color}; font-size: 0.72rem; font-weight: 700; background: ${statusInfo.color}18; padding: 0.15rem 0.5rem; border-radius: 12px; border: 1px solid ${statusInfo.color}40;`
+                        }));
                         card.appendChild(infoRow);
 
-                        // Customer
+                        // Store name (if viewing all orders or available)
+                        const storeName = (o.user && (o.user.role === 0 || o.user.role === 1) ? o.user.name : null) || (o.creator && (o.creator.role === 0 || o.creator.role === 1) ? o.creator.name : null);
+                        if (storeName && isAll) {
+                            const storeRow = ui.createElement('div', [], { style: 'color: var(--admin-color); font-size: 0.75rem; font-weight: 700;' });
+                            storeRow.innerHTML = `🏪 <span>${storeName}</span>`;
+                            card.appendChild(storeRow);
+                        }
+
+                        // Customer info
+                        const custName = (o.creator && o.creator.role === 2 ? o.creator.name : null) || (o.user && o.user.role === 2 ? o.user.name : null) || o.creator?.name || o.user?.name || (isAr ? 'عميل' : 'Customer');
+                        const custPhone = (o.creator && o.creator.role === 2 ? o.creator.phone : null) || (o.user && o.user.role === 2 ? o.user.phone : null) || o.creator?.phone || o.user?.phone || '-';
                         const custRow = ui.createElement('div', [], { style: 'color: var(--text-secondary); font-size: 0.75rem;' });
-                        custRow.innerHTML = `👤 <strong>${o.user ? o.user.name : (isAr ? 'عميل' : 'Customer')}</strong> (${o.user?.phone || '-'})`;
+                        custRow.innerHTML = `👤 <strong>${custName}</strong> (${custPhone})`;
                         card.appendChild(custRow);
 
                         // Address
@@ -2000,7 +2117,7 @@ async function renderRestaurantOrders(container, restaurant) {
                             card.appendChild(addrRow);
                         }
 
-                        // Products
+                        // Products (if available)
                         if (o.products && o.products.length > 0) {
                             const prodBox = ui.createElement('div', [], {
                                 style: 'border-top: 1px dashed var(--border-color); border-bottom: 1px dashed var(--border-color); padding: 0.3rem 0.4rem; margin: 0.2rem 0; display: flex; flex-direction: column; gap: 0.2rem; background: rgba(0,0,0,0.1); border-radius: 4px;'
@@ -2020,6 +2137,43 @@ async function renderRestaurantOrders(container, restaurant) {
                         footerRow.appendChild(ui.createElementWithText('span', dateStr, ['text-muted'], { style: 'font-size: 0.68rem;' }));
                         footerRow.appendChild(ui.createElementWithText('span', isAr ? `${(o.totalPrice||0).toFixed(2)} ج.م` : `${(o.totalPrice||0).toFixed(2)} EGP`, [], { style: 'font-weight: 800; font-size: 0.9rem; color: var(--color-success); font-family: "Outfit", sans-serif;' }));
                         card.appendChild(footerRow);
+
+                        // Actions Row: View Full Details + Cancel Order Button
+                        const cardActions = ui.createElement('div', [], { style: 'display: flex; gap: 0.4rem; margin-top: 0.35rem;' });
+
+                        // Cancel Order Button for Admin (allowed for non-terminal statuses: 0, 1, 2, 3, 4, 5, 6)
+                        if (o.status !== 7 && o.status !== 8 && o.status !== 9) {
+                            const cancelBtn = ui.createElementWithText('button', isAr ? '🚫 إلغاء' : '🚫 Cancel', ['btn'], {
+                                style: 'background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 6px; padding: 0.35rem 0.6rem; font-size: 0.72rem; font-weight: 700; cursor: pointer; transition: all 0.2s;'
+                            });
+                            cancelBtn.addEventListener('click', async (e) => {
+                                e.stopPropagation();
+                                const confirmCancel = confirm(isAr ? `هل أنت متأكد من رغبتك في إلغاء الطلب #${o.id}؟` : `Are you sure you want to cancel order #${o.id}?`);
+                                if (!confirmCancel) return;
+                                try {
+                                    cancelBtn.disabled = true;
+                                    cancelBtn.textContent = isAr ? 'جاري...' : 'Cancelling...';
+                                    await apiFetch('/api/v1/orders/status', {
+                                        method: 'PUT',
+                                        body: JSON.stringify({
+                                            id: parseInt(o.id),
+                                            status: 8, // Status 8 = Cancelled (ملغي)
+                                            rowVersion: o.rowVersion
+                                        })
+                                    });
+                                    ui.showToast(isAr ? `تم إلغاء الطلب #${o.id} بنجاح` : `Order #${o.id} cancelled successfully`, 'success');
+                                    await load();
+                                } catch (err) {
+                                    console.error(err);
+                                    ui.showToast((isAr ? 'فشل إلغاء الطلب: ' : 'Failed to cancel order: ') + err.message, 'error');
+                                    cancelBtn.disabled = false;
+                                    cancelBtn.textContent = isAr ? '🚫 إلغاء' : '🚫 Cancel';
+                                }
+                            });
+                            cardActions.appendChild(cancelBtn);
+                        }
+
+                        card.appendChild(cardActions);
 
                         listContainer.appendChild(card);
                     });

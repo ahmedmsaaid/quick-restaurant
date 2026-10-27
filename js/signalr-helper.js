@@ -74,6 +74,9 @@ export async function initSignalRNotificationService(apiClient, onNotificationCa
     }
 }
 
+let signalRRetryCount = 0;
+const MAX_SIGNALR_RETRIES = 3;
+
 /**
  * Start or restart the SignalR Hub connection with retry mechanism
  */
@@ -81,16 +84,25 @@ async function startSignalRConnection() {
     if (!hubConnection || isStarting) return;
     if (hubConnection.state === signalR.HubConnectionState.Connected) return;
 
+    if (signalRRetryCount >= MAX_SIGNALR_RETRIES) {
+        console.warn('⚡ [SignalR] Notification hub is currently unreachable on backend after max retries. Polling fallback is active.');
+        return;
+    }
+
     isStarting = true;
     try {
         await hubConnection.start();
+        signalRRetryCount = 0;
         console.log('%c⚡ [SignalR] Connected successfully to /hubs/notifications', 'color: #2ed573; font-weight: bold; font-size: 12px;');
     } catch (err) {
-        console.error('⚡ [SignalR] Connection failed, retrying in 5 seconds...', err);
-        setTimeout(() => {
-            isStarting = false;
-            startSignalRConnection();
-        }, 5000);
+        signalRRetryCount++;
+        console.warn(`⚡ [SignalR] Connection attempt ${signalRRetryCount}/${MAX_SIGNALR_RETRIES} failed:`, err.message || err);
+        if (signalRRetryCount < MAX_SIGNALR_RETRIES) {
+            setTimeout(() => {
+                isStarting = false;
+                startSignalRConnection();
+            }, 10000);
+        }
         return;
     } finally {
         isStarting = false;

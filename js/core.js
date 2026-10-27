@@ -100,7 +100,14 @@ export class ApiClient {
             reqBody = options.body;
         }
 
-        const fullUrl = path.startsWith('http') ? path : `${this.baseUrl}${path}`;
+        let normalizedPath = path;
+        if (!normalizedPath.startsWith('http')) {
+            if (!normalizedPath.startsWith('/')) {
+                normalizedPath = '/' + normalizedPath;
+            }
+        }
+        const cleanBaseUrl = (this.baseUrl || '').replace(/\/+$/, '');
+        const fullUrl = path.startsWith('http') ? path : `${cleanBaseUrl}${normalizedPath}`;
         let response;
         try {
             response = await fetch(fullUrl, { ...options, headers });
@@ -120,6 +127,14 @@ export class ApiClient {
         Logger.logHttp(options.method || 'GET', fullUrl, reqBody, response.status, resBody, this.role);
 
         if (!response.ok) {
+            if (response.status === 401) {
+                console.warn('🔒 [ApiClient] 401 Unauthorized. Session expired or token invalid.');
+                localStorage.removeItem(this.getTokenKey());
+                localStorage.removeItem(this.getUserKey());
+                if (typeof window !== 'undefined' && typeof window.showAuthRequiredDialog === 'function') {
+                    window.showAuthRequiredDialog();
+                }
+            }
             let errorMessage = `${response.status} ${response.statusText}`;
             if (resBody && typeof resBody === 'object') {
                 const msg = resBody.message || resBody.title || resBody.result
