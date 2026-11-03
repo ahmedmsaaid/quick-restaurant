@@ -16,12 +16,12 @@ let alarmIntervalId = null;
  */
 export function createElement(tag, classes = [], attributes = {}) {
     const el = document.createElement(tag);
-    
+
     // Set classes
     classes.forEach(cls => {
         if (cls) el.classList.add(cls);
     });
-    
+
     // Set attributes
     Object.entries(attributes).forEach(([key, val]) => {
         if (key === 'dataset') {
@@ -32,7 +32,7 @@ export function createElement(tag, classes = [], attributes = {}) {
             el.setAttribute(key, val);
         }
     });
-    
+
     return el;
 }
 
@@ -165,7 +165,7 @@ export function printOrderReceipt(order = {}, options = {}) {
     const isAr = (typeof getLanguage === 'function' ? getLanguage() : (localStorage.getItem('portal_lang') || 'ar')) === 'ar';
 
     const orderId = order.id || order.orderId || order.code || '1001';
-    const dateStr = formatReceiptDate(order.createdAt || (order.rawOrder && order.rawOrder.createdAt) || (order.rawOrder && order.rawOrder.createdOn), isAr);
+    const dateStr = formatReceiptDate(order.createdAt || order.createdOn || (order.rawOrder && order.rawOrder.createdAt) || (order.rawOrder && order.rawOrder.createdOn), isAr);
 
     // Determine store name from order, DOM header, or cached vendor profile
     let storeName = order.storeName || order.vendorName || '';
@@ -182,7 +182,7 @@ export function printOrderReceipt(order = {}, options = {}) {
                 const parsed = JSON.parse(userJson);
                 storeName = parsed.name || parsed.storeName || '';
             }
-        } catch (_) {}
+        } catch (_) { }
     }
     if (!storeName) {
         storeName = isAr ? 'كويك للتوصيل السريع' : 'Quick Delivery';
@@ -191,7 +191,7 @@ export function printOrderReceipt(order = {}, options = {}) {
     const customerName = order.customerName || (order.user ? order.user.name : '') || (order.creator ? order.creator.name : '') || (order.rawOrder && order.rawOrder.creator ? order.rawOrder.creator.name : '') || (order.rawOrder && order.rawOrder.user ? order.rawOrder.user.name : '') || (isAr ? 'عميل كويك' : 'Customer');
     const customerPhone = order.customerPhone || (order.user ? order.user.phone : '') || (order.creator ? order.creator.phone : '') || (order.rawOrder && order.rawOrder.creator ? order.rawOrder.creator.phone : '') || (order.rawOrder && order.rawOrder.user ? order.rawOrder.user.phone : '') || '';
     const address = order.address || order.deliveryAddress || order.formattedDeliveryAddress || (order.rawOrder && order.rawOrder.address) || '';
-    
+
     // Extract items using resilient extractor
     const items = extractOrderItems(order);
 
@@ -224,7 +224,7 @@ export function printOrderReceipt(order = {}, options = {}) {
 
     const deliveryFee = parseFloat(order.deliveryFee || (order.rawOrder && order.rawOrder.deliveryFee) || 0);
     const finalTotal = parseFloat(order.finalTotal || order.totalPrice || (order.rawOrder && order.rawOrder.totalPrice) || (subtotal + deliveryFee) || 0);
-    
+
     const isOnline = (order.rawOrder && order.rawOrder.paymentMethod === 1) || order.paymentMethod === 1 || String(order.paymentMethod).toLowerCase().includes('online');
     const paymentMethodText = isOnline ? (isAr ? 'دفع إلكتروني' : 'Online Payment') : (isAr ? 'كاش عند الاستلام' : 'Cash on Delivery');
     const paymentStatusBadge = isOnline ? (isAr ? '[مدفوع]' : '[PAID]') : (isAr ? '[غير مدفوع]' : '[UNPAID]');
@@ -259,7 +259,7 @@ export function printOrderReceipt(order = {}, options = {}) {
             
             <div><strong>${isAr ? 'العميل:' : 'Customer:'}</strong> ${customerName}</div>
             ${customerPhone ? `<div><strong>${isAr ? 'الهاتف:' : 'Phone:'}</strong> ${customerPhone}</div>` : ''}
-            ${address ? `<div><strong>${isAr ? 'العنوان:' : 'Address:'}</strong> ${address}</div>` : ''}
+
             
             <div style="border-top: 1px dashed #000; margin: 6px 0;"></div>
             
@@ -447,7 +447,7 @@ export function showOrderReceiptModal(order) {
     const paper = createElement('div', ['receipt-paper', 'paper-80mm']);
 
     const orderId = order.id || order.orderId || order.code || '1001';
-    const dateStr = formatReceiptDate(order.createdAt || (order.rawOrder && order.rawOrder.createdAt) || (order.rawOrder && order.rawOrder.createdOn), isAr);
+    const dateStr = formatReceiptDate(order.createdAt || order.createdOn || (order.rawOrder && order.rawOrder.createdAt) || (order.rawOrder && order.rawOrder.createdOn), isAr);
 
     let storeName = order.storeName || order.vendorName || '';
     if (!storeName) {
@@ -463,14 +463,14 @@ export function showOrderReceiptModal(order) {
                 const parsed = JSON.parse(userJson);
                 storeName = parsed.name || parsed.storeName || '';
             }
-        } catch (_) {}
+        } catch (_) { }
     }
     if (!storeName) storeName = isAr ? 'كويك للتوصيل السريع' : 'Quick Delivery';
 
     const customerName = order.customerName || (order.user ? order.user.name : '') || (order.creator ? order.creator.name : '') || (order.rawOrder && order.rawOrder.creator ? order.rawOrder.creator.name : '') || (order.rawOrder && order.rawOrder.user ? order.rawOrder.user.name : '') || (isAr ? 'عميل كويك' : 'Customer');
     const customerPhone = order.customerPhone || (order.user ? order.user.phone : '') || (order.creator ? order.creator.phone : '') || (order.rawOrder && order.rawOrder.creator ? order.rawOrder.creator.phone : '') || (order.rawOrder && order.rawOrder.user ? order.rawOrder.user.phone : '') || '';
     const address = order.address || order.deliveryAddress || order.formattedDeliveryAddress || (order.rawOrder && order.rawOrder.address) || '';
-    
+
     // Extract items using resilient extractor
     const items = extractOrderItems(order);
 
@@ -507,7 +507,7 @@ export function showOrderReceiptModal(order) {
     if (address) {
         const addrRow = createElement('div', ['receipt-meta-row'], { style: 'font-size: 11px; color: #475569;' });
         addrRow.appendChild(createElementWithText('span', `📍 ${address}`));
-        paper.appendChild(addrRow);
+        // Address removed from receipt preview
     }
 
     paper.appendChild(createElement('div', ['receipt-dashed-line']));
@@ -639,7 +639,7 @@ export function showOrderReceiptModal(order) {
     // Copies Selector
     const copiesGroup = createElement('div', ['receipt-copies-ctrl']);
     copiesGroup.appendChild(createElementWithText('span', isAr ? 'النسخ:' : 'Copies:', [], { style: 'font-size: 11px; font-weight: 700;' }));
-    
+
     const countDisplay = createElementWithText('span', '1', ['receipt-copies-count']);
     const minusBtn = createElementWithText('button', '-', ['receipt-copy-btn'], { type: 'button' });
     const plusBtn = createElementWithText('button', '+', ['receipt-copy-btn'], { type: 'button' });
@@ -695,7 +695,7 @@ export function showOrderReceiptModal(order) {
  */
 export function showFullScreenOrderAlert(orderCode = '', onAcknowledgeCallback = null) {
     let overlay = document.getElementById('full-screen-order-overlay');
-    
+
     // Start Web Audio Synthesizer Alarm Loop
     startAlarmSound();
 
@@ -793,7 +793,7 @@ export function maskPII(value, type) {
 export function showModal(title, bodyNode, buttons = []) {
     let overlay = document.getElementById('modal-overlay');
     let container = document.getElementById('modal-container');
-    
+
     if (!overlay) {
         overlay = createElement('div', ['modal-overlay', 'hidden'], { id: 'modal-overlay' });
         document.body.appendChild(overlay);
@@ -813,10 +813,10 @@ export function showModal(title, bodyNode, buttons = []) {
     container.style.width = '';
     container.style.maxHeight = '';
     container.style.overflowY = '';
-    
+
     // Clear previous content safely
     container.replaceChildren();
-    
+
     // Build Header
     const header = createElement('div', ['modal-header']);
     const titleEl = createElementWithText('h3', title);
@@ -824,11 +824,11 @@ export function showModal(title, bodyNode, buttons = []) {
     closeBtn.addEventListener('click', closeModal);
     header.appendChild(titleEl);
     header.appendChild(closeBtn);
-    
+
     // Build Body
     const body = createElement('div', ['modal-body']);
     body.appendChild(bodyNode);
-    
+
     // Build Footer
     const footer = createElement('div', ['modal-footer']);
     if (buttons.length === 0) {
@@ -853,11 +853,11 @@ export function showModal(title, bodyNode, buttons = []) {
     overlay.onclick = (e) => {
         if (e.target === overlay) closeModal();
     };
-    
+
     container.appendChild(header);
     container.appendChild(body);
     container.appendChild(footer);
-    
+
     overlay.classList.remove('hidden');
     overlay.style.display = 'flex';
     overlay.style.zIndex = '999999';
@@ -876,6 +876,26 @@ export function closeModal() {
 export const hideModal = closeModal;
 
 /**
+ * Creates a reusable error state box with an optional retry button
+ */
+export function createErrorState(message, onRetry = null) {
+    const isAr = (typeof getLanguage === 'function' ? getLanguage() : (localStorage.getItem('portal_lang') || 'ar')) === 'ar';
+    const box = createElement('div', ['glass-panel'], {
+        style: 'padding: 2rem; text-align: center; border-radius: 16px; margin: 1rem 0;'
+    });
+    box.appendChild(createElementWithText('div', '⚠️', [], { style: 'font-size: 2.2rem; margin-bottom: 0.5rem;' }));
+    box.appendChild(createElementWithText('p', message || (isAr ? 'حدث خطأ أثناء تحميل البيانات' : 'Failed to load data'), ['text-muted'], {
+        style: 'margin-bottom: 1rem; font-weight: 600;'
+    }));
+    if (typeof onRetry === 'function') {
+        const retryBtn = createElementWithText('button', isAr ? '🔄 إعادة المحاولة' : '🔄 Retry', ['btn', 'btn-primary'], { type: 'button' });
+        retryBtn.addEventListener('click', onRetry);
+        box.appendChild(retryBtn);
+    }
+    return box;
+}
+
+/**
  * Safely render a Chart.js instance on a canvas element
  */
 export function renderChart(canvasEl, config) {
@@ -883,13 +903,13 @@ export function renderChart(canvasEl, config) {
         console.error('Chart.js library is not loaded');
         return null;
     }
-    
+
     // Destroy previous chart if attached to canvas to avoid memory leaks
     const existingChart = window.Chart.getChart(canvasEl);
     if (existingChart) {
         existingChart.destroy();
     }
-    
+
     return new window.Chart(canvasEl, config);
 }
 
@@ -909,10 +929,11 @@ function initAudio() {
  * Play synthesized high-frequency alarm beeps
  */
 function playBeepSound() {
-    if (!audioCtx) return;
-    
+    if (!audioCtx) { try { initAudio(); } catch (_) { return; } }
+    if (audioCtx.state === 'suspended') { audioCtx.resume().catch(() => { }); }
+
     const now = audioCtx.currentTime;
-    
+
     // 1st chime node
     const osc1 = audioCtx.createOscillator();
     const gain1 = audioCtx.createGain();
@@ -921,10 +942,10 @@ function playBeepSound() {
     gain1.gain.setValueAtTime(0, now);
     gain1.gain.linearRampToValueAtTime(0.15, now + 0.05);
     gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
-    
+
     osc1.connect(gain1);
     gain1.connect(audioCtx.destination);
-    
+
     // 2nd chime node (slightly offset)
     const osc2 = audioCtx.createOscillator();
     const gain2 = audioCtx.createGain();
@@ -933,10 +954,10 @@ function playBeepSound() {
     gain2.gain.setValueAtTime(0, now + 0.15);
     gain2.gain.linearRampToValueAtTime(0.15, now + 0.2);
     gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
-    
+
     osc2.connect(gain2);
     gain2.connect(audioCtx.destination);
-    
+
     // Start and stop oscillators
     osc1.start(now);
     osc1.stop(now + 0.35);
@@ -949,18 +970,18 @@ function playBeepSound() {
  */
 export function startAlarmSound() {
     initAudio();
-    
+
     const banner = document.getElementById('alarm-controller');
     if (banner) {
         banner.classList.remove('hidden');
     }
-    
+
     // Prevent overlapping timers
     if (alarmIntervalId) return;
-    
+
     // Play immediately first
     playBeepSound();
-    
+
     // Repeat loop
     alarmIntervalId = setInterval(() => {
         playBeepSound();
@@ -975,7 +996,7 @@ export function stopAlarmSound() {
     if (banner) {
         banner.classList.add('hidden');
     }
-    
+
     if (alarmIntervalId) {
         clearInterval(alarmIntervalId);
         alarmIntervalId = null;
@@ -1012,6 +1033,10 @@ export function requestNotificationPermission() {
  * @param {Object} options - Optional parameters (icon, tag, onClick)
  */
 export function sendDesktopNotification(title, body, options = {}) {
+    if (body && typeof body === 'object') {
+        options = body;
+        body = options.body || '';
+    }
     if ('Notification' in window) {
         if (Notification.permission === 'granted') {
             try {
@@ -1069,7 +1094,7 @@ export function showToast(message, type = 'info') {
 
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
-    
+
     let icon = 'ℹ️';
     if (type === 'success') icon = '✅';
     if (type === 'error') icon = '❌';
@@ -1132,19 +1157,19 @@ export function renderShimmerGrid(container, count = 3) {
     const grid = createElement('div', ['shimmer-grid']);
     for (let i = 0; i < count; i++) {
         const card = createElement('div', ['shimmer-card']);
-        
+
         const img = createElement('div', ['shimmer-item', 'shimmer-image']);
         card.appendChild(img);
-        
+
         const title = createElement('div', ['shimmer-item', 'shimmer-title']);
         card.appendChild(title);
-        
+
         const line1 = createElement('div', ['shimmer-item', 'shimmer-line']);
         card.appendChild(line1);
-        
+
         const line2 = createElement('div', ['shimmer-item', 'shimmer-line', 'short']);
         card.appendChild(line2);
-        
+
         grid.appendChild(card);
     }
     container.appendChild(grid);
@@ -1158,17 +1183,17 @@ export function renderShimmerList(container, count = 4) {
     const list = createElement('div', ['shimmer-container']);
     for (let i = 0; i < count; i++) {
         const card = createElement('div', ['shimmer-card'], { style: 'display: flex; align-items: center; gap: 1rem; padding: 1rem;' });
-        
+
         const thumb = createElement('div', ['shimmer-item', 'shimmer-thumbnail']);
         card.appendChild(thumb);
-        
+
         const content = createElement('div', [], { style: 'flex: 1; display: flex; flex-direction: column; gap: 0.5rem;' });
         const title = createElement('div', ['shimmer-item', 'shimmer-title'], { style: 'margin: 0; height: 1.2rem; width: 30%;' });
         const line = createElement('div', ['shimmer-item', 'shimmer-line'], { style: 'margin: 0; height: 0.8rem; width: 70%;' });
         content.appendChild(title);
         content.appendChild(line);
         card.appendChild(content);
-        
+
         list.appendChild(card);
     }
     container.appendChild(list);
@@ -1179,7 +1204,7 @@ export function renderShimmerList(container, count = 4) {
  */
 export function setInputInvalid(inputEl, message) {
     inputEl.classList.add('input-invalid');
-    
+
     let errorEl = inputEl.nextElementSibling;
     if (errorEl && errorEl.classList.contains('validation-error-msg')) {
         errorEl.textContent = message;
@@ -1187,7 +1212,7 @@ export function setInputInvalid(inputEl, message) {
         errorEl = createElementWithText('span', message, ['validation-error-msg']);
         inputEl.parentNode.insertBefore(errorEl, inputEl.nextSibling);
     }
-    
+
     const clearStatus = () => {
         inputEl.classList.remove('input-invalid');
         if (errorEl) errorEl.remove();
@@ -1241,7 +1266,8 @@ export function updateThemeButtonsUI(theme) {
     btns.forEach(btn => {
         const labelEl = btn.querySelector('.theme-btn-label') || btn.querySelector('#mobile-drawer-theme-text');
         if (labelEl) {
-            labelEl.textContent = theme === 'dark' ? '☀️ الوضع الفاتح (Light Mode)' : '🌙 الوضع الليلي (Dark Mode)';
+            const isAr = (typeof getLanguage === 'function' ? getLanguage() : (localStorage.getItem('portal_lang') || 'ar')) === 'ar';
+            labelEl.textContent = theme === 'dark' ? (isAr ? '☀️ الوضع الفاتح' : '☀️ Light Mode') : (isAr ? '🌙 الوضع الليلي' : '🌙 Dark Mode');
         } else {
             btn.textContent = theme === 'dark' ? '☀️' : '🌙';
         }
@@ -1277,7 +1303,7 @@ export function initMobileSidebar() {
         if (!sidebar.querySelector('.mobile-sidebar-header')) {
             const header = document.createElement('div');
             header.className = 'mobile-sidebar-header';
-            
+
             const profile = JSON.parse(localStorage.getItem('qs_vendor_user') || '{}');
             const storeName = profile.name || (document.documentElement.dir === 'rtl' ? 'المتجر' : 'Store');
             const photoKey = profile.photo || profile.avatar || profile.featuredPhoto || '';
@@ -1301,13 +1327,14 @@ export function initMobileSidebar() {
             actions.className = 'mobile-sidebar-actions';
 
             const isDark = (localStorage.getItem('qs_theme') || 'light') === 'dark';
-            const themeLabel = isDark ? '☀️ الوضع الفاتح (Light Mode)' : '🌙 الوضع الليلي (Dark Mode)';
-            
+            const isAr = (typeof getLanguage === 'function' ? getLanguage() : (localStorage.getItem('portal_lang') || 'ar')) === 'ar';
+            const themeLabel = isDark ? (isAr ? '☀️ الوضع الفاتح' : '☀️ Light Mode') : (isAr ? '🌙 الوضع الليلي' : '🌙 Dark Mode');
+
             const desktopLangBtn = document.getElementById('btn-lang-toggle');
             const langLabel = desktopLangBtn ? desktopLangBtn.textContent : 'العربية';
 
             actions.innerHTML = `
-                <div style="font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700; padding: 0.25rem 0.5rem;">إعدادات التحكم</div>
+                <div style="font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700; padding: 0.25rem 0.5rem;">${isAr ? 'إعدادات التحكم' : 'Controls'}</div>
                 <button class="sidebar-link mobile-action-link btn-theme-toggle" id="mobile-drawer-theme-btn">
                     <span id="mobile-drawer-theme-text">${themeLabel}</span>
                 </button>
@@ -1315,7 +1342,7 @@ export function initMobileSidebar() {
                     <span>🌐 <span id="mobile-drawer-lang-text">${langLabel}</span></span>
                 </button>
                 <button class="sidebar-link mobile-action-link" id="mobile-drawer-logout-btn" style="color: var(--color-danger);">
-                    <span>🚪 تسجيل الخروج (Logout)</span>
+                    <span>🚪 ${isAr ? 'تسجيل الخروج' : 'Logout'}</span>
                 </button>
             `;
 
@@ -1327,7 +1354,8 @@ export function initMobileSidebar() {
                     toggleTheme();
                     const nowDark = (localStorage.getItem('qs_theme') || 'light') === 'dark';
                     const txt = actions.querySelector('#mobile-drawer-theme-text');
-                    if (txt) txt.textContent = nowDark ? '☀️ الوضع الفاتح (Light Mode)' : '🌙 الوضع الليلي (Dark Mode)';
+                    const isArNow = (typeof getLanguage === 'function' ? getLanguage() : (localStorage.getItem('portal_lang') || 'ar')) === 'ar';
+                    if (txt) txt.textContent = nowDark ? (isArNow ? '☀️ الوضع الفاتح' : '☀️ Light Mode') : (isArNow ? '🌙 الوضع الليلي' : '🌙 Dark Mode');
                 });
             }
 
@@ -1411,9 +1439,9 @@ export function initMobileBottomNav() {
 
         // Trigger corresponding sidebar link
         const targetBtn = document.querySelector(`.sidebar-link[data-tab="${targetTab}"]`) ||
-                          document.querySelector(`#rest-menu-${targetTab}`) ||
-                          document.querySelector(`#mkt-menu-${targetTab}`) ||
-                          document.querySelector(`#sa-menu-${targetTab}`);
+            document.querySelector(`#rest-menu-${targetTab}`) ||
+            document.querySelector(`#mkt-menu-${targetTab}`) ||
+            document.querySelector(`#sa-menu-${targetTab}`);
         if (targetBtn) {
             targetBtn.click();
         }
@@ -1448,12 +1476,111 @@ if (typeof document !== 'undefined') {
 }
 
 /**
+ * Calculates complete order financials:
+ * - subtotal: items price total
+ * - commission: platform fee / quick commission
+ * - commissionRate: percentage rate
+ * - storeNet: net amount the store will receive
+ * - deliveryFee: captain fee
+ * - customerTotal: total amount paid by customer
+ * @param {Object} order - Order object
+ * @param {Boolean} isMarket - Whether it's a supermarket (5%) or restaurant (10%)
+ * @returns {Object} Financial summary
+ */
+export function calculateOrderFinancials(order, isMarket = false) {
+    if (!order) {
+        return {
+            subtotal: 0,
+            commission: 0,
+            commissionRate: 0,
+            storeNet: 0,
+            deliveryFee: 0,
+            customerTotal: 0
+        };
+    }
+
+    const items = extractOrderItems(order);
+    let subtotal = 0;
+    if (items.length > 0) {
+        subtotal = items.reduce((acc, it) => acc + (parseFloat(it.price || 0) * parseInt(it.qty || 1)), 0);
+    }
+    if (subtotal <= 0) {
+        const rawTotal = parseFloat(order.totalPrice || (order.rawOrder && order.rawOrder.totalPrice) || 0);
+        const delFee = parseFloat(order.deliveryFee || (order.rawOrder && order.rawOrder.deliveryFee) || 0);
+        const ordFee = parseFloat(order.orderFee || (order.rawOrder && order.rawOrder.orderFee) || 0);
+        subtotal = Math.max(0, rawTotal - delFee - ordFee) || rawTotal;
+    }
+
+    const deliveryFee = parseFloat(order.deliveryFee || (order.rawOrder && order.rawOrder.deliveryFee) || 0);
+
+    // Determine default commission rate: 5% for market, 10% for restaurant
+    let defaultRate = isMarket ? 5 : 10;
+    if (order.type === 1 || order.type === 'market' || order.type === 'supermarket') {
+        defaultRate = 5;
+    } else if (order.type === 0 || order.type === 'restaurant') {
+        defaultRate = 10;
+    }
+
+    let commission = 0;
+    let commissionRate = defaultRate;
+
+    if (order.commission !== undefined && order.commission !== null && parseFloat(order.commission) > 0) {
+        commission = parseFloat(order.commission);
+        if (subtotal > 0) {
+            commissionRate = Math.round((commission / subtotal) * 100);
+        }
+    } else if (order.rawOrder && order.rawOrder.commission !== undefined && order.rawOrder.commission !== null && parseFloat(order.rawOrder.commission) > 0) {
+        commission = parseFloat(order.rawOrder.commission);
+        if (subtotal > 0) {
+            commissionRate = Math.round((commission / subtotal) * 100);
+        }
+    } else if (order.orderFee !== undefined && order.orderFee !== null && parseFloat(order.orderFee) > 0) {
+        commission = parseFloat(order.orderFee);
+        if (subtotal > 0) {
+            commissionRate = Math.round((commission / subtotal) * 100);
+        }
+    } else if (order.rawOrder && order.rawOrder.orderFee !== undefined && order.rawOrder.orderFee !== null && parseFloat(order.rawOrder.orderFee) > 0) {
+        commission = parseFloat(order.rawOrder.orderFee);
+        if (subtotal > 0) {
+            commissionRate = Math.round((commission / subtotal) * 100);
+        }
+    } else {
+        commission = subtotal > 0 ? (subtotal * defaultRate) / 100 : 0;
+    }
+
+    let storeNet = 0;
+    if (order.netEarnings !== undefined && order.netEarnings !== null && parseFloat(order.netEarnings) > 0) {
+        storeNet = parseFloat(order.netEarnings);
+    } else if (order.rawOrder && order.rawOrder.netEarnings !== undefined && order.rawOrder.netEarnings !== null && parseFloat(order.rawOrder.netEarnings) > 0) {
+        storeNet = parseFloat(order.rawOrder.netEarnings);
+    } else {
+        storeNet = Math.max(0, subtotal - commission);
+    }
+
+    const customerTotal = parseFloat(
+        order.finalTotal ||
+        (order.rawOrder && order.rawOrder.totalPrice) ||
+        (subtotal + deliveryFee)
+    );
+
+    return {
+        subtotal,
+        commission: 0,
+        commissionRate: 0,
+        storeNet: subtotal,
+        deliveryFee,
+        customerTotal
+    };
+}
+
+/**
  * Unified Mobile-Style Order Details Layout (Matching user reference)
  * @param {Object} order - Order DTO object
  * @param {Object} options - { showHeader, onBack, onAccept, acceptText, readonly }
  * @returns {HTMLElement} - Container DOM node
  */
 export function renderOrderView(order, options = {}) {
+    const isAr = (typeof getLanguage === 'function' ? getLanguage() : (localStorage.getItem('portal_lang') || 'ar')) === 'ar';
     const container = createElement('div', ['qs-order-view']);
 
     // 1. Optional Top Header (e.g. inside modal or full page view)
@@ -1467,44 +1594,46 @@ export function renderOrderView(order, options = {}) {
         } else {
             header.appendChild(createElement('div', [], { style: 'width: 24px;' }));
         }
-        header.appendChild(createElementWithText('div', 'تفاصيل الطلب', ['qs-order-view-header-title']));
+        header.appendChild(createElementWithText('div', isAr ? 'تفاصيل الطلب' : 'Order Details', ['qs-order-view-header-title']));
         header.appendChild(createElement('div', [], { style: 'width: 24px;' }));
         container.appendChild(header);
     }
 
     // 2. Card 1: Order ID, Badge, Time, Customer & Phone (NO ADDRESS per user request)
     const card1 = createElement('div', ['qs-order-card']);
-    
+
     // Top Row
     const topRow = createElement('div', ['qs-order-top-row']);
-    
+
     // Title & Time Group
     const titleGroup = createElement('div', ['qs-order-title-group']);
-    titleGroup.appendChild(createElementWithText('h3', `طلب #${order.id}`, ['qs-order-number']));
-    
-    let timeText = 'وصل منذ لحظات 🕒';
-    if (order.createdAt) {
+    titleGroup.appendChild(createElementWithText('h3', isAr ? `طلب #${order.id}` : `Order #${order.id}`, ['qs-order-number']));
+
+    let timeText = isAr ? 'وصل منذ لحظات 🕒' : 'Just now 🕒';
+    if (order.createdAt || order.createdOn || (order.rawOrder && (order.rawOrder.createdOn || order.rawOrder.createdAt))) {
         try {
-            const diffMs = Date.now() - new Date(order.createdAt).getTime();
+            const diffMs = Date.now() - new Date(order.createdAt || order.createdOn || (order.rawOrder && (order.rawOrder.createdOn || order.rawOrder.createdAt))).getTime();
             const mins = Math.floor(diffMs / 60000);
-            if (mins > 1 && mins < 60) {
-                timeText = `منذ ${mins} دقيقة 🕒`;
+            if (mins >= 1 && mins < 60) {
+                timeText = isAr ? `منذ ${mins} دقيقة 🕒` : `${mins}m ago 🕒`;
             } else if (mins >= 60 && mins < 1440) {
-                timeText = `منذ ${Math.floor(mins / 60)} ساعة 🕒`;
+                timeText = isAr ? `منذ ${Math.floor(mins / 60)} ساعة 🕒` : `${Math.floor(mins / 60)}h ago 🕒`;
+            } else if (mins >= 1440) {
+                timeText = isAr ? `منذ ${Math.floor(mins / 1440)} يوم 🕒` : `${Math.floor(mins / 1440)}d ago 🕒`;
             }
-        } catch (_) {}
+        } catch (_) { }
     }
     titleGroup.appendChild(createElementWithText('div', timeText, ['qs-order-time']));
     topRow.appendChild(titleGroup);
 
     // Status Badge
-    let badgeLabel = 'جديد';
-    if (order.status === 'confirmed') badgeLabel = 'مؤكد';
-    else if (order.status === 'preparing') badgeLabel = 'قيد التجهيز';
-    else if (order.status === 'ready_for_pickup') badgeLabel = 'جاهز';
-    else if (order.status === 'waiting_for_driver') badgeLabel = 'بانتظار سائق';
-    else if (order.status === 'completed') badgeLabel = 'مكتمل';
-    else if (order.status === 'on_the_way') badgeLabel = 'في الطريق';
+    let badgeLabel = isAr ? 'جديد' : 'New';
+    if (order.status === 'confirmed') badgeLabel = isAr ? 'مؤكد' : 'Confirmed';
+    else if (order.status === 'preparing') badgeLabel = isAr ? 'قيد التجهيز' : 'Preparing';
+    else if (order.status === 'ready_for_pickup') badgeLabel = isAr ? 'جاهز' : 'Ready';
+    else if (order.status === 'waiting_for_driver') badgeLabel = isAr ? 'بانتظار سائق' : 'Awaiting Driver';
+    else if (order.status === 'completed') badgeLabel = isAr ? 'مكتمل' : 'Completed';
+    else if (order.status === 'on_the_way') badgeLabel = isAr ? 'في الطريق' : 'On the way';
 
     topRow.appendChild(createElementWithText('span', badgeLabel, ['qs-order-badge']));
     card1.appendChild(topRow);
@@ -1539,12 +1668,12 @@ export function renderOrderView(order, options = {}) {
         subtotal += qty * price;
 
         const itemBox = createElement('div', ['qs-order-item-box']);
-        
+
         // Item Details (Name + Qty + Price)
         const info = createElement('div', ['qs-order-item-info']);
-        info.appendChild(createElementWithText('div', it.name || 'صنف', ['qs-order-item-name']));
+        info.appendChild(createElementWithText('div', it.name || (isAr ? 'صنف' : 'Item'), ['qs-order-item-name']));
         info.appendChild(createElementWithText('div', `${qty}x`, ['qs-order-item-qty']));
-        info.appendChild(createElementWithText('div', `${(qty * price).toFixed(2)} ج.م`, ['qs-order-item-price']));
+        info.appendChild(createElementWithText('div', `${(qty * price).toFixed(2)} ${isAr ? 'ج.م' : 'EGP'}`, ['qs-order-item-price']));
         itemBox.appendChild(info);
 
         // Item Image Wrap
@@ -1564,26 +1693,46 @@ export function renderOrderView(order, options = {}) {
         card2.appendChild(itemBox);
     });
 
-    if (items.length === 0) {
-        subtotal = parseFloat(order.totalPrice || 0);
-    }
-
-    const deliveryFee = parseFloat(order.deliveryFee || (order.rawOrder && order.rawOrder.deliveryFee) || 0);
-    const grandTotal = subtotal + deliveryFee;
+    const isMarketView = (typeof window !== 'undefined' && window.location.pathname.toLowerCase().includes('market')) || order.type === 1 || order.type === 'market' || order.type === 'supermarket';
+    const finances = calculateOrderFinancials(order, isMarketView);
+    const currText = isAr ? 'ج.م' : 'EGP';
 
     const subtotalRow = createElement('div', ['qs-order-summary-row']);
-    subtotalRow.appendChild(createElementWithText('span', 'الإجمالي الفرعي'));
-    subtotalRow.appendChild(createElementWithText('span', `${subtotal.toFixed(2)} ج.م`));
+    subtotalRow.appendChild(createElementWithText('span', isAr ? 'قيمة الأصناف (المجموع الفرعي)' : 'Items Subtotal'));
+    subtotalRow.appendChild(createElementWithText('span', `${finances.subtotal.toFixed(2)} ${currText}`));
     card2.appendChild(subtotalRow);
 
-    const deliveryRow = createElement('div', ['qs-order-summary-row']);
-    deliveryRow.appendChild(createElementWithText('span', 'رسوم التوصيل'));
-    deliveryRow.appendChild(createElementWithText('span', `${deliveryFee.toFixed(2)} ج.م`));
-    card2.appendChild(deliveryRow);
+    const commRow = createElement('div', ['qs-order-summary-row', 'commission-row']);
+    const commLabel = isAr
+        ? `عمولة التطبيق / المنصة${finances.commissionRate > 0 ? ` (${finances.commissionRate}%)` : ''}`
+        : `Platform Commission${finances.commissionRate > 0 ? ` (${finances.commissionRate}%)` : ''}`;
+    commRow.appendChild(createElementWithText('span', commLabel));
+    commRow.appendChild(createElementWithText('span', `-${finances.commission.toFixed(2)} ${currText}`, ['font-bold']));
+    // Commission removed per user request (Store Net = Items Subtotal)
+
+    // Highlighted Net Store Box
+    const netBox = createElement('div', ['qs-order-summary-net-box']);
+    netBox.appendChild(createElementWithText('span', isAr ? '💰 صافي مستحق المحل:' : '💰 Net Store Payout:'));
+    netBox.appendChild(createElementWithText('span', `${finances.storeNet.toFixed(2)} ${currText}`, ['font-bold']));
+    // Net Store Payout box removed per user request
+
+    if (finances.deliveryFee > 0) {
+        const deliveryRow = createElement('div', ['qs-order-summary-row']);
+        deliveryRow.appendChild(createElementWithText('span', isAr ? 'رسوم التوصيل (للمندوب)' : 'Delivery Fee (Captain)'));
+        deliveryRow.appendChild(createElementWithText('span', `${finances.deliveryFee.toFixed(2)} ${currText}`));
+        card2.appendChild(deliveryRow);
+    }
+
+    const rawServiceFee = order.orderFee !== undefined && order.orderFee !== null ? order.orderFee : (order.rawOrder && order.rawOrder.orderFee !== undefined ? order.rawOrder.orderFee : 0);
+    const serviceFeeVal = parseFloat(rawServiceFee) || 0;
+    const serviceFeeRow = createElement('div', ['qs-order-summary-row']);
+    serviceFeeRow.appendChild(createElementWithText('span', isAr ? 'رسوم الخدمة' : 'Service Fee'));
+    serviceFeeRow.appendChild(createElementWithText('span', `${serviceFeeVal.toFixed(2)} ${currText}`));
+    card2.appendChild(serviceFeeRow);
 
     const totalRow = createElement('div', ['qs-order-summary-total']);
-    totalRow.appendChild(createElementWithText('span', 'الإجمالي الكلي'));
-    totalRow.appendChild(createElementWithText('span', `${grandTotal.toFixed(2)} ج.م`));
+    totalRow.appendChild(createElementWithText('span', isAr ? 'إجمالي المطلوب من العميل' : 'Total Paid by Customer'));
+    totalRow.appendChild(createElementWithText('span', `${finances.customerTotal.toFixed(2)} ${currText}`));
     card2.appendChild(totalRow);
 
     container.appendChild(card2);
@@ -1591,24 +1740,24 @@ export function renderOrderView(order, options = {}) {
     // 4. Card 3: Payment Method
     const card3 = createElement('div', ['qs-order-card']);
     const isOnline = (order.rawOrder && order.rawOrder.paymentMethod === 1) || order.paymentMethod === 1;
-    const payText = isOnline ? 'دفع إلكتروني' : 'كاش عند الاستلام';
-    
+    const payText = isOnline ? (isAr ? 'دفع إلكتروني' : 'Online Payment') : (isAr ? 'كاش عند الاستلام' : 'Cash on Delivery');
+
     const payRow = createElement('div', ['qs-order-card-row']);
     payRow.appendChild(createElementWithText('span', payText, ['qs-order-card-value']));
-    payRow.appendChild(createElementWithText('span', '💳 وسيلة الدفع', ['qs-order-card-label']));
+    payRow.appendChild(createElementWithText('span', isAr ? '💳 وسيلة الدفع' : '💳 Payment Method', ['qs-order-card-label']));
     card3.appendChild(payRow);
     container.appendChild(card3);
 
     // 5. Card 4: Customer Notes
     const card4 = createElement('div', ['qs-order-card']);
-    card4.appendChild(createElementWithText('div', 'ملاحظات العميل', ['qs-order-section-title', 'qs-order-card-label']));
-    const notesText = order.notes && order.notes.trim() ? order.notes.trim() : 'لا توجد ملاحظات';
+    card4.appendChild(createElementWithText('div', isAr ? 'ملاحظات العميل' : 'Customer Notes', ['qs-order-section-title', 'qs-order-card-label']));
+    const notesText = order.notes && order.notes.trim() ? order.notes.trim() : (isAr ? 'لا توجد ملاحظات' : 'No notes');
     card4.appendChild(createElementWithText('div', notesText, ['qs-order-notes-content']));
     container.appendChild(card4);
 
     // 6. Action Button: ONLY Accept button (NO reject button per "ومن غير رفض الطلب")
     if (!options.readonly && options.onAccept) {
-        const acceptBtn = createElementWithText('button', options.acceptText || '✔ تأكيد القبول', ['qs-order-accept-btn']);
+        const acceptBtn = createElementWithText('button', options.acceptText || (isAr ? '✔ تأكيد القبول' : '✔ Accept Order'), ['qs-order-accept-btn']);
         acceptBtn.type = 'button';
         acceptBtn.addEventListener('click', options.onAccept);
         container.appendChild(acceptBtn);
@@ -1638,11 +1787,11 @@ export function renderDashboardOrderCard(order, options = {}) {
 
     // 1. Header
     const header = createElement('div', ['qs-dash-order-header']);
-    
+
     // Top Row: Order # + Status Badge
     const headerTop = createElement('div', ['qs-dash-order-header-top']);
     headerTop.appendChild(createElementWithText('span', `${isAr ? 'طلب #' : 'Order #'}${order.id}`, ['qs-dash-order-number']));
-    
+
     let badgeLabel = isAr ? 'جديد' : 'New';
     if (order.status === 'confirmed') badgeLabel = isAr ? 'مؤكد' : 'Confirmed';
     else if (order.status === 'preparing') badgeLabel = isAr ? 'قيد التجهيز' : 'Preparing';
@@ -1651,7 +1800,7 @@ export function renderDashboardOrderCard(order, options = {}) {
     else if (order.status === 'completed') badgeLabel = isAr ? 'مكتمل' : 'Completed';
     else if (order.status === 'on_the_way') badgeLabel = isAr ? 'في الطريق' : 'On the way';
     headerTop.appendChild(createElementWithText('span', badgeLabel, ['qs-dash-order-badge-compact', 'qs-dash-order-badge-new']));
-    
+
     // Quick Print Button (Modeled after Haat Store OrderCard header print icon)
     const quickPrintBtn = createElementWithText('button', '🖨️', ['qs-dash-quick-print-btn'], {
         type: 'button',
@@ -1668,16 +1817,18 @@ export function renderDashboardOrderCard(order, options = {}) {
     // Sub Row: Time + Payment Badge
     const headerSub = createElement('div', ['qs-dash-order-header-sub']);
     let timeText = isAr ? 'منذ قليل 🕒' : 'Just now 🕒';
-    if (order.createdAt) {
+    if (order.createdAt || order.createdOn || (order.rawOrder && (order.rawOrder.createdOn || order.rawOrder.createdAt))) {
         try {
-            const diffMs = Date.now() - new Date(order.createdAt).getTime();
+            const diffMs = Date.now() - new Date(order.createdAt || order.createdOn || (order.rawOrder && (order.rawOrder.createdOn || order.rawOrder.createdAt))).getTime();
             const mins = Math.floor(diffMs / 60000);
             if (mins >= 1 && mins < 60) {
                 timeText = isAr ? `منذ ${mins} د 🕒` : `${mins}m ago 🕒`;
             } else if (mins >= 60 && mins < 1440) {
                 timeText = isAr ? `منذ ${Math.floor(mins / 60)} س 🕒` : `${Math.floor(mins / 60)}h ago 🕒`;
+            } else if (mins >= 1440) {
+                timeText = isAr ? `منذ ${Math.floor(mins / 1440)} يوم 🕒` : `${Math.floor(mins / 1440)}d ago 🕒`;
             }
-        } catch (_) {}
+        } catch (_) { }
     }
     headerSub.appendChild(createElementWithText('span', timeText, ['qs-dash-order-time-compact']));
 
@@ -1689,7 +1840,7 @@ export function renderDashboardOrderCard(order, options = {}) {
 
     // 2. Body
     const body = createElement('div', ['qs-dash-order-body']);
-    
+
     // Customer Name (NO ADDRESS per instructions)
     const custName = order.customerName || (order.user ? order.user.name : '') || (isAr ? 'عميل' : 'Customer');
     const custRow = createElement('div', ['qs-dash-order-customer-compact']);
@@ -1703,25 +1854,60 @@ export function renderDashboardOrderCard(order, options = {}) {
     itemsRow.appendChild(createElementWithText('span', `📦 ${items.length} ${isAr ? 'أصناف' : 'items'}: ${itemsSummary}`));
     body.appendChild(itemsRow);
 
-    // Price row
-    const deliveryFee = parseFloat(order.deliveryFee || (order.rawOrder && order.rawOrder.deliveryFee) || 0);
-    const subtotal = items.reduce((acc, it) => acc + (parseFloat(it.price || 0) * parseInt(it.qty || 1)), 0);
-    const finalTotal = parseFloat(order.finalTotal || order.totalPrice || (subtotal + deliveryFee) || 0);
-    
-    const priceRow = createElement('div', ['qs-dash-order-price-compact']);
-    priceRow.appendChild(createElementWithText('span', isAr ? 'الإجمالي:' : 'Total:', ['text-secondary'], { style: 'font-size: 0.78rem;' }));
-    priceRow.appendChild(createElementWithText('strong', `${finalTotal.toFixed(2)} ج.م`));
-    body.appendChild(priceRow);
+    // Financial Breakdown & Store Net Payout
+    const isMarketCard = (typeof window !== 'undefined' && window.location.pathname.toLowerCase().includes('market')) || order.type === 1 || order.type === 'market' || order.type === 'supermarket';
+    const finances = calculateOrderFinancials(order, isMarketCard);
+    const currText = isAr ? 'ج.م' : 'EGP';
+
+    const financesBox = createElement('div', ['qs-dash-order-financials']);
+
+    // 1. Highlight: Store Net Payout (المبلغ الي هياخده المحل)
+    const netBox = createElement('div', ['qs-dash-order-net-highlight']);
+    const netLabel = createElementWithText('span', isAr ? '💰 مستحق المحل (الصافي):' : '💰 Store Net:', ['qs-dash-order-net-label']);
+    const netVal = createElementWithText('span', `${finances.storeNet.toFixed(2)} ${currText}`, ['qs-dash-order-net-value']);
+    netBox.appendChild(netLabel);
+    netBox.appendChild(netVal);
+    financesBox.appendChild(netBox);
+
+    // 2. Breakdown list (تفصيص المبلغ)
+    const breakdownList = createElement('div', ['qs-dash-order-breakdown-list']);
+
+    // Items Subtotal
+    const subtotalRow = createElement('div', ['qs-dash-order-breakdown-row']);
+    subtotalRow.appendChild(createElementWithText('span', isAr ? '🛒 قيمة الأصناف:' : '🛒 Items:'));
+    subtotalRow.appendChild(createElementWithText('span', `${finances.subtotal.toFixed(2)} ${currText}`, ['qs-dash-order-breakdown-val']));
+    breakdownList.appendChild(subtotalRow);
+
+    // Commission Row
+    const commRow = createElement('div', ['qs-dash-order-breakdown-row', 'commission-row']);
+    const commLabelText = isAr
+        ? `📊 عمولة التطبيق${finances.commissionRate > 0 ? ` (${finances.commissionRate}%):` : ':'}`
+        : `📊 Commission${finances.commissionRate > 0 ? ` (${finances.commissionRate}%):` : ':'}`;
+    commRow.appendChild(createElementWithText('span', commLabelText));
+    commRow.appendChild(createElementWithText('span', `-${finances.commission.toFixed(2)} ${currText}`, ['qs-dash-order-breakdown-val']));
+    // Commission row removed per user request (Store Net = Items Subtotal)
+
+    // Customer Grand Total (and delivery fee if applicable)
+    const totalRow = createElement('div', ['qs-dash-order-breakdown-row', 'total-row']);
+    const totalLabelText = isAr
+        ? '👥 الإجمالي:'
+        : '👥 Total:';
+    totalRow.appendChild(createElementWithText('span', totalLabelText, [], { style: 'font-size: 0.72rem;' }));
+    totalRow.appendChild(createElementWithText('strong', `${finances.customerTotal.toFixed(2)} ${currText}`, ['qs-dash-order-breakdown-val']));
+    breakdownList.appendChild(totalRow);
+
+    financesBox.appendChild(breakdownList);
+    body.appendChild(financesBox);
     card.appendChild(body);
 
     // 3. Actions row: compact buttons
     const actionsRow = createElement('div', ['qs-dash-order-actions-compact']);
-    
+
     const detailsBtn = createElementWithText('button', isAr ? '👁️ التفاصيل' : '👁️ Details', ['qs-dash-btn-details-compact']);
     detailsBtn.type = 'button';
     detailsBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        showOrderDetailsModal(order, options.onAccept);
+        showOrderDetailsModal(order, options.onAccept, options.acceptText);
     });
     actionsRow.appendChild(detailsBtn);
 
@@ -1743,13 +1929,15 @@ export function renderDashboardOrderCard(order, options = {}) {
             options.onAccept();
         });
         actionsRow.appendChild(acceptBtn);
+    } else if (order.status === 'waiting_for_driver') {
+        actionsRow.appendChild(createElementWithText('span', isAr ? '⏳ بانتظار قبول الطيار' : '⏳ Awaiting Captain', [], { style: 'font-size: 0.75rem; font-weight: 700; color: var(--color-pending); padding: 4px 8px;' }));
     }
     card.appendChild(actionsRow);
 
     // Clicking anywhere on card opens details modal
     card.addEventListener('click', (e) => {
         if (e.target.closest('button')) return;
-        showOrderDetailsModal(order, options.onAccept);
+        showOrderDetailsModal(order, options.onAccept, options.acceptText);
     });
 
     return card;
@@ -1758,10 +1946,10 @@ export function renderDashboardOrderCard(order, options = {}) {
 /**
  * Shows the order details in an overlay modal matching the mobile reference
  */
-export function showOrderDetailsModal(order, onAcceptCallback = null) {
+export function showOrderDetailsModal(order, onAcceptCallback = null, customAcceptText = null) {
     let overlay = document.getElementById('modal-overlay');
     let modalContainer = document.getElementById('modal-container');
-    
+
     if (!overlay) {
         overlay = createElement('div', ['modal-overlay', 'hidden'], { id: 'modal-overlay' });
         document.body.appendChild(overlay);
@@ -1790,7 +1978,7 @@ export function showOrderDetailsModal(order, onAcceptCallback = null) {
     const orderView = renderOrderView(order, {
         showHeader: true,
         onBack: () => closeModal(),
-        acceptText: '✔ تأكيد القبول',
+        acceptText: customAcceptText || (((typeof getLanguage === 'function' ? getLanguage() : (localStorage.getItem('portal_lang') || 'ar')) === 'ar') ? '🍳 بدء التحضير' : '🍳 Start Preparing'),
         onAccept: onAcceptCallback ? () => {
             onAcceptCallback(order);
             closeModal();

@@ -4,12 +4,12 @@
  * menu customizer modifiers, and emergency closure overlays.
  */
 
-import * as ui from './ui-utils.js?v=35.0';
-import { t, getLanguage, setLanguage, initTranslations, subscribeLangChange } from './translations.js?v=35.0';
-import { ApiClient, ImageService, Logger } from './core.js?v=35.0';
-import { initFCMNotificationService } from './fcm-helper.js?v=35.0';
-import { initSignalRNotificationService, stopSignalRConnection } from './signalr-helper.js?v=35.0';
-import { renderMerchantOverview, renderMerchantSettlements, renderMerchantWallet } from './modules/merchant-financial.js?v=35.0';
+import * as ui from './ui-utils.js?v=43.0';
+import { t, getLanguage, setLanguage, initTranslations, subscribeLangChange } from './translations.js?v=42.0';
+import { ApiClient, ImageService, Logger } from './core.js?v=42.0';
+import { initFCMNotificationService } from './fcm-helper.js?v=42.0';
+import { initSignalRNotificationService, stopSignalRConnection } from './signalr-helper.js?v=42.0';
+import { renderMerchantOverview, renderMerchantSettlements, renderMerchantWallet } from './modules/merchant-financial.js?v=42.0';
 console.log('🚀 restaurant.js module loaded');
 
 function clearInvalid(inputEl) {
@@ -499,7 +499,11 @@ async function refreshOrders() {
             console.log("DEBUG - myProductIds Set:", Array.from(myProductIds));
             const fetchedOrders = data.result.filter(ord => {
                 // Must match this restaurant's userId or products
-                if (ord.userId && parseInt(ord.userId) === parseInt(myRestaurantId)) return true;
+                const ordVendorId = ord.userId || (ord.user && ord.user.id) || (ord.userLocation && ord.userLocation.creatorId);
+                if (ordVendorId && parseInt(ordVendorId) === parseInt(myRestaurantId)) return true;
+                if (ord.offerId && (offers || []).some(of => parseInt(of.id) === parseInt(ord.offerId))) return true;
+                const checkProds = ord.products || ord.orderProducts || ord.OrderProducts || [];
+                if (checkProds.length > 0 && checkProds.some(p => myProductIds.has(parseInt(p.productId || (p.product && p.product.id) || (p.Product && p.Product.id))))) return true;
                 if (ord.products && ord.products.length > 0) {
                     return ord.products.some(p => myProductIds.has(p.productId));
                 }
@@ -530,12 +534,16 @@ async function refreshOrders() {
                     items: items,
                     totalPrice: ord.totalPrice - (ord.deliveryFee || 0) - (ord.orderFee || 0),
                     deliveryFee: ord.deliveryFee || 0,
+                    orderFee: parseFloat(ord.orderFee || (ord.rawOrder && ord.rawOrder.orderFee) || 0),
+                    commission: parseFloat(ord.commission || (ord.rawOrder && ord.rawOrder.commission) || ord.orderFee || (ord.rawOrder && ord.rawOrder.orderFee) || 0),
+                    netEarnings: parseFloat(ord.netEarnings || (ord.rawOrder && ord.rawOrder.netEarnings) || 0),
+                    type: 0,
                     finalTotal: ord.totalPrice,
                     paymentMethod: ord.paymentMethod || (ord.rawOrder && ord.rawOrder.paymentMethod) || 0,
                     notes: ord.note || ord.notes || '',
                     customerName: ord.creator ? ord.creator.name : (ord.user && ord.user.role === 2 ? ord.user.name : (getLanguage() === 'ar' ? 'عميل' : 'Customer')),
                     customerPhone: ord.creator ? ord.creator.phone : (ord.user && ord.user.role === 2 ? ord.user.phone : ''),
-                    createdAt: ord.createdAt,
+                    createdAt: ord.createdAt || ord.createdOn,
                     prepTime: 20,
                     captainName: '',
                     rawOrder: ord
@@ -544,30 +552,35 @@ async function refreshOrders() {
 
             // Detect new incoming pending orders for notifications
             if (knownOrderIds !== null) {
-                const newIncoming = fetchedOrders.filter(o => !knownOrderIds.has(o.id) && (o.status === 'new' || o.status === 'pending_payment' || o.status === 'pending'));
+                const prevConfirmedIds = new Set(orders.filter(o => o.status === 'confirmed').map(o => o.id));
+                const newIncoming = fetchedOrders.filter(o => (o.status === 'confirmed' && !prevConfirmedIds.has(o.id)) || (!knownOrderIds.has(o.id) && o.status === 'waiting_for_driver'));
                 if (newIncoming.length > 0) {
                     console.log('🍔 New incoming food orders detected:', newIncoming);
                     ui.showFullScreenOrderAlert(newIncoming[0].id, () => {
                         const queueTab = document.getElementById('rest-menu-queue');
                         if (queueTab) queueTab.click();
                     });
-                    
+
                     newIncoming.forEach(ord => {
-                        const title = getLanguage() === 'ar' 
-                            ? `🍔 طلب طعام جديد! (#${ord.id})` 
-                            : `🍔 New Food Order! (#${ord.id})`;
+                        const title = getLanguage() === 'ar'
+                            ? (ord.status === 'confirmed' ? `✅ الطيار قَبِل الطلب (#${ord.id}) - ابدأ التحضير!` : `⏳ طلب جديد بانتظار طيار (#${ord.id})`)
+                            : (ord.status === 'confirmed' ? `✅ Captain Accepted Order (#${ord.id}) - Start Prep!` : `⏳ New Order Awaiting Captain (#${ord.id})`);
                         const body = getLanguage() === 'ar'
-                            ? `طلب جديد من ${ord.customerName} - الإجمالي: ${ord.totalPrice} د.ع`
-                            : `New food order from ${ord.customerName} - Total: ${ord.totalPrice} IQD`;
-                        
+                            ? `طلب جديد من ${ord.customerName} - الإجمالي: ${ord.finalTotal || ord.totalPrice} ج.م`
+                            : `New food order from ${ord.customerName} - Total: ${ord.finalTotal || ord.totalPrice} EGP`;
+
                         ui.sendDesktopNotification(title, body, { tag: 'order-' + ord.id });
                         ui.showToast(getLanguage() === 'ar' ? `وصل طلب جديد! #${ord.id}` : `New order received! #${ord.id}`, 'info');
                     });
                 }
             }
 
+            const prevSig = orders.map(o => `${o.id}:${o.status}`).join('|');
+            const nextSig = fetchedOrders.map(o => `${o.id}:${o.status}`).join('|');
+            const hasChanges = prevSig !== nextSig;
             knownOrderIds = new Set(fetchedOrders.map(o => o.id));
             orders = fetchedOrders;
+            return hasChanges;
         }
     } catch (e) {
         console.error('Failed to load orders:', e);
@@ -579,7 +592,7 @@ async function updateStatus(orderId, localStatus, extra = {}) {
     try {
         let backendStatus = mapLocalStatusToBackend(localStatus);
         const order = orders.find(o => o.id === orderId.toString());
-        
+
         const rowVersion = order && order.rawOrder ? order.rawOrder.rowVersion : null;
 
         await apiFetch('/api/v1/orders/status', {
@@ -604,10 +617,10 @@ async function updateStatus(orderId, localStatus, extra = {}) {
 function escapeHtml(str) {
     if (!str) return '';
     return str.replace(/&/g, '&amp;')
-              .replace(/</g, '&lt;')
-              .replace(/>/g, '&gt;')
-              .replace(/"/g, '&quot;')
-              .replace(/'/g, '&#039;');
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
 }
 
 async function updateNotificationCount() {
@@ -619,7 +632,7 @@ async function updateNotificationCount() {
         if (res && res.success) {
             serverCount = parseInt(res.result || 0);
         }
-        const pendingCount = orders.filter(o => o.status === 'new' || o.status === 'pending_payment' || o.status === 'pending').length;
+        const pendingCount = orders.filter(o => o.status === 'confirmed' || o.status === 'waiting_for_driver').length;
         const totalCount = Math.max(serverCount, pendingCount);
         if (totalCount > 0) {
             badge.textContent = totalCount;
@@ -629,7 +642,7 @@ async function updateNotificationCount() {
         }
     } catch (e) {
         console.error('Failed to fetch notification count:', e);
-        const pendingCount = orders.filter(o => o.status === 'new' || o.status === 'pending_payment' || o.status === 'pending').length;
+        const pendingCount = orders.filter(o => o.status === 'confirmed' || o.status === 'waiting_for_driver').length;
         if (pendingCount > 0) {
             badge.textContent = pendingCount;
             badge.style.display = 'flex';
@@ -724,7 +737,7 @@ async function initNotificationsSystem() {
             e.stopPropagation();
             const unreadItems = document.querySelectorAll('#notifications-list .notification-item.unread');
             if (unreadItems.length === 0) return;
-            
+
             markAllBtn.disabled = true;
             const promises = [];
             unreadItems.forEach(item => {
@@ -745,7 +758,7 @@ async function initNotificationsSystem() {
 
     await updateNotificationCount();
     // Fallback heartbeat every 90s (real-time updates handled instantly by FCM push)
-    setInterval(updateNotificationCount, 90000);
+    setInterval(updateNotificationCount, 15000);
 }
 
 const DEFAULT_STORE_AVATAR = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 24 24" fill="%23004D40"><path d="M19 6h-2c0-2.76-2.24-5-5-5S7 3.24 7 6H5c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-7-3c1.66 0 3 1.34 3 3H9c0-1.66 1.34-3 3-3zm7 17H5V8h14v12z"/></svg>`;
@@ -754,7 +767,7 @@ function updateHeaderVendorName() {
     const headerEl = document.getElementById('header-vendor-name');
     const avatarEl = document.getElementById('header-vendor-avatar');
     const profile = JSON.parse(localStorage.getItem('qs_vendor_user') || '{}');
-    
+
     if (headerEl) {
         const name = profile.name || profile.storeName || (getLanguage() === 'ar' ? 'المطعم' : 'Restaurant');
         headerEl.textContent = name;
@@ -779,7 +792,7 @@ export async function initRestaurant() {
     updateHeaderVendorName();
     setupSidebarNavigation();
     initNotificationsSystem();
-    
+
     // Initialize Firebase Cloud Messaging Push Notifications
     initFCMNotificationService(apiClient, async () => {
         await refreshOrders();
@@ -799,7 +812,7 @@ export async function initRestaurant() {
             renderActiveTab();
         }
     });
-    
+
     // Wire logout button in header
     const logoutBtn = document.getElementById('btn-logout');
     if (logoutBtn) {
@@ -819,7 +832,7 @@ export async function initRestaurant() {
             langBtn.textContent = current === 'en' ? 'العربية' : 'English';
         };
         updateLangBtnText();
-        
+
         langBtn.addEventListener('click', () => {
             const nextLang = getLanguage() === 'en' ? 'ar' : 'en';
             setLanguage(nextLang);
@@ -843,9 +856,9 @@ export async function initRestaurant() {
         try {
             const u = JSON.parse(userJson);
             myRestaurantId = parseInt(u.id);
-        } catch(e) {}
+        } catch (e) { }
     }
-    
+
     try {
         const profileData = await apiFetch('/api/v1/users', { method: 'GET' });
         if (profileData && profileData.result) {
@@ -890,21 +903,21 @@ export async function initRestaurant() {
     // Fallback heartbeat every 60s (real-time updates handled instantly by FCM push)
     setInterval(async () => {
         try {
-            await refreshOrders();
+            const hasOrderChanges = await refreshOrders();
             updateBadges();
             checkBuzzerAlarm();
-            if (activeTab === 'queue' || activeTab === 'progress') {
+            if (hasOrderChanges && (activeTab === 'queue' || activeTab === 'progress' || activeTab === 'overview')) {
                 renderActiveTab();
             }
         } catch (e) {
             console.error('Error in fallback order sync:', e);
         }
-    }, 60000);
+    }, 5000);
 }
 
 // Check if there are new pending orders for this store to sound alarm
 function checkBuzzerAlarm() {
-    const hasIncoming = orders.some(o => o.status === 'new' || o.status === 'pending_payment' || o.status === 'pending');
+    const hasIncoming = orders.some(o => o.status === 'confirmed');
     if (hasIncoming) {
         ui.startAlarmSound();
     } else {
@@ -916,10 +929,10 @@ function checkBuzzerAlarm() {
 function updateBadges() {
     const qBadge = document.getElementById('rest-badge-queue') || document.getElementById('rest-badge-incoming');
     const pBadge = document.getElementById('rest-badge-progress');
-    
-    const countQueue = orders.filter(o => o.status === 'new' || o.status === 'pending_payment' || o.status === 'pending').length;
+
+    const countQueue = orders.filter(o => o.status === 'confirmed' || o.status === 'waiting_for_driver').length;
     const countProgress = orders.filter(o => o.status === 'preparing' || o.status === 'ready_for_pickup').length;
-    
+
     if (qBadge) {
         qBadge.textContent = countQueue;
         qBadge.style.display = countQueue > 0 ? 'inline-flex' : 'none';
@@ -937,12 +950,12 @@ function setupSidebarNavigation() {
         link.addEventListener('click', (e) => {
             links.forEach(l => l.classList.remove('active'));
             e.currentTarget.classList.add('active');
-            
+
             if (activeDashboardChatInterval) {
                 clearInterval(activeDashboardChatInterval);
                 activeDashboardChatInterval = null;
             }
-            
+
             activeTab = e.currentTarget.dataset.tab;
             updateHeaders();
             renderActiveTab();
@@ -963,17 +976,17 @@ function renderActiveTab() {
     updateHeaders();
     const container = document.getElementById('rest-tab-container');
     container.replaceChildren();
-    
+
     // Check if store is inactive to display closed banner
     const userJson = localStorage.getItem('qs_vendor_user');
     const u = JSON.parse(userJson || '{}');
     const isStoreClosed = (u.active === 0 || u.active === false);
-    
+
     if (isStoreClosed) {
         const closedBanner = ui.createElementWithText('div', t('rest_closed_banner'), ['store-closed-banner']);
         container.appendChild(closedBanner);
     }
-    
+
     if (activeTab === 'queue') {
         renderQueueTab(container);
     } else if (activeTab === 'progress') {
@@ -1187,8 +1200,10 @@ function renderSettingsTab(parent) {
    ========================================================================== */
 function renderQueueTab(parent) {
     // Show only brand new orders (status=0) and pending payment orders (status=1) that need restaurant action
-    const incomingOrders = orders.filter(o => o.status === 'new' || o.status === 'pending_payment');
-    
+    const confirmedOrders = orders.filter(o => o.status === 'confirmed');
+    const waitingOrders = orders.filter(o => o.status === 'waiting_for_driver' || o.status === 'new' || o.status === 'pending_payment');
+    const incomingOrders = [...confirmedOrders, ...waitingOrders];
+
     if (incomingOrders.length === 0) {
         const emptyBlock = ui.createElement('div', ['glass-panel'], { style: 'text-align: center; padding: 4rem 2rem;' });
         emptyBlock.appendChild(ui.createElementWithText('h3', t('rest_queue_empty_title'), [], { style: 'margin-bottom: 0.5rem;' }));
@@ -1196,7 +1211,7 @@ function renderQueueTab(parent) {
         parent.appendChild(emptyBlock);
         return;
     }
-    
+
     const grid = ui.createElement('div', ['analytics-grid', 'qs-orders-grid'], { style: 'margin-bottom: 2rem;' });
 
     incomingOrders.forEach(ord => {
@@ -1205,16 +1220,17 @@ function renderQueueTab(parent) {
             const prepTime = 20;
             const paymentMethod = ord.rawOrder ? ord.rawOrder.paymentMethod : 0;
             const acceptStatus = paymentMethod === 1 ? 'pending_payment' : 'waiting_for_driver';
-            
-            await updateStatus(ord.id, acceptStatus, { prepTime });
-            ui.showToast(getLanguage() === 'ar' ? 'تم قبول الطلب بنجاح!' : 'Order accepted successfully!', 'success');
-            
+
+            await updateStatus(ord.id, 'preparing', { prepTime });
+            ui.showToast(getLanguage() === 'ar' ? 'تم بدء تحضير الطلب بنجاح!' : 'Order preparation started!', 'success');
+
             const targetTabBtn = document.getElementById('rest-menu-kanban') || document.getElementById('rest-menu-queue');
             if (targetTabBtn) targetTabBtn.click();
         };
 
         const cardView = ui.renderDashboardOrderCard(ord, {
-            acceptText: '✔ تأكيد القبول',
+            readonly: ord.status !== 'confirmed',
+            acceptText: getLanguage() === 'ar' ? '🍳 بدء التحضير' : '🍳 Start Preparing',
             onAccept
         });
 
@@ -1227,14 +1243,14 @@ function renderQueueTab(parent) {
 function showAcceptTimeModal(order) {
     const modalBody = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.75rem;' });
     modalBody.appendChild(ui.createElementWithText('p', t('rest_queue_modal_accept_desc', { id: order.id })));
-    
+
     const timeSelect = ui.createElement('select', ['select-input'], { id: 'rest-prep-time' });
     timeSelect.appendChild(ui.createElementWithText('option', getLanguage() === 'ar' ? '15 دقيقة' : '15 minutes', [], { value: '15' }));
     timeSelect.appendChild(ui.createElementWithText('option', getLanguage() === 'ar' ? '20 دقيقة (قياسي)' : '20 minutes (Standard)', [], { value: '20' }));
     timeSelect.appendChild(ui.createElementWithText('option', getLanguage() === 'ar' ? '30 دقيقة' : '30 minutes', [], { value: '30' }));
     timeSelect.appendChild(ui.createElementWithText('option', getLanguage() === 'ar' ? '45 دقيقة (ذروة)' : '45 minutes (Peak)', [], { value: '45' }));
     modalBody.appendChild(timeSelect);
-    
+
     ui.showModal(t('rest_queue_modal_accept_title'), modalBody, [
         {
             text: t('rest_queue_modal_accept_btn'),
@@ -1260,13 +1276,13 @@ function showAcceptTimeModal(order) {
 function showDeclineReasonModal(order) {
     const modalBody = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.75rem;' });
     modalBody.appendChild(ui.createElementWithText('p', t('rest_queue_modal_decline_desc')));
-    
+
     const reasonSelect = ui.createElement('select', ['select-input'], { id: 'rest-decline-reason' });
     reasonSelect.appendChild(ui.createElementWithText('option', t('rest_queue_modal_decline_option_out'), [], { value: 'out_of_stock' }));
     reasonSelect.appendChild(ui.createElementWithText('option', t('rest_queue_modal_decline_option_busy'), [], { value: 'busy' }));
     reasonSelect.appendChild(ui.createElementWithText('option', t('rest_queue_modal_decline_option_closing'), [], { value: 'closing' }));
     modalBody.appendChild(reasonSelect);
-    
+
     ui.showModal(t('rest_queue_modal_decline_title'), modalBody, [
         {
             text: t('rest_queue_modal_decline_btn'),
@@ -1291,7 +1307,7 @@ function showDeclineReasonModal(order) {
    ========================================================================== */
 function renderProgressTab(parent) {
     const kanban = ui.createElement('div', ['kanban-board']);
-    
+
     const columns = [
         { title: getLanguage() === 'ar' ? '⏳ بانتظار السائق' : '⏳ Awaiting Driver', status: 'waiting_for_driver' },
         { title: getLanguage() === 'ar' ? '✅ مؤكد - ابدأ التحضير' : '✅ Confirmed - Start Prep', status: 'confirmed' },
@@ -1300,39 +1316,39 @@ function renderProgressTab(parent) {
         { title: t('rest_progress_col_way'), status: 'on_the_way' },
         { title: t('rest_progress_col_completed'), status: 'completed' }
     ];
-    
+
     columns.forEach(col => {
         const colDiv = ui.createElement('div', ['kanban-column']);
         const colOrders = orders.filter(o => o.status === col.status);
-        
+
         // Header
         const header = ui.createElement('div', ['kanban-column-title']);
         header.appendChild(ui.createElementWithText('span', col.title));
         header.appendChild(ui.createElementWithText('span', colOrders.length.toString(), ['sidebar-badge']));
         colDiv.appendChild(header);
-        
+
         const cardList = ui.createElement('div', ['kanban-card-list']);
-        
+
         if (colOrders.length === 0) {
             cardList.appendChild(ui.createElementWithText('div', t('rest_progress_empty_col'), [], { style: 'text-align: center; color: var(--text-muted); font-size: 0.75rem; padding: 2rem 0;' }));
         } else {
             colOrders.forEach(ord => {
                 const card = ui.createElement('div', ['kanban-card']);
-                
+
                 const cardHeader = ui.createElement('div', ['kanban-card-header']);
                 const ordHeader = getLanguage() === 'ar' ? `طلب #${ord.id}` : `Order #${ord.id}`;
                 cardHeader.appendChild(ui.createElementWithText('span', ordHeader));
                 cardHeader.appendChild(ui.createElementWithText('span', `$${ord.totalPrice.toFixed(2)}`, [], { style: 'color: var(--color-success);' }));
                 card.appendChild(cardHeader);
-                
+
                 const cardItems = ui.createElement('div', ['kanban-card-items']);
                 const itemsText = ord.items.map(i => `${i.qty}x ${i.name}`).join(', ');
                 cardItems.appendChild(ui.createElementWithText('p', itemsText.length > 50 ? itemsText.slice(0, 47) + '...' : itemsText));
                 card.appendChild(cardItems);
-                
+
                 // Footer
                 const footer = ui.createElement('div', ['kanban-card-footer']);
-                
+
                 if (col.status === 'waiting_for_driver') {
                     // Status=2: Restaurant accepted, waiting for captain to confirm
                     const info = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.25rem; width: 100%;' });
@@ -1348,7 +1364,7 @@ function renderProgressTab(parent) {
                     footer.appendChild(actionBtn);
                 } else if (col.status === 'preparing') {
                     footer.appendChild(ui.createElementWithText('span', t('rest_progress_est', { time: ord.prepTime || 20 }), [], { style: 'color: var(--color-pending); font-weight: bold;' }));
-                    
+
                     const actionBtn = ui.createElementWithText('button', t('rest_progress_btn_ready'), ['btn', 'btn-primary', 'btn-sm']);
                     actionBtn.addEventListener('click', async (e) => {
                         e.stopPropagation();
@@ -1366,7 +1382,7 @@ function renderProgressTab(parent) {
                 } else if (col.status === 'completed') {
                     footer.appendChild(ui.createElementWithText('span', t('rest_progress_delivered'), [], { style: 'color: var(--color-success); font-weight: bold;' }));
                 }
-                
+
                 // Quick print button on Kanban footer
                 const kanbanPrintBtn = ui.createElementWithText('button', '🖨️', ['btn', 'btn-secondary', 'btn-xs'], {
                     title: t('print_invoice') || 'طباعة الفاتورة',
@@ -1379,19 +1395,19 @@ function renderProgressTab(parent) {
                 footer.appendChild(kanbanPrintBtn);
 
                 card.appendChild(footer);
-                
+
                 card.addEventListener('click', () => {
                     showOrderDetailModal(ord);
                 });
-                
+
                 cardList.appendChild(card);
             });
         }
-        
+
         colDiv.appendChild(cardList);
         kanban.appendChild(colDiv);
     });
-    
+
     parent.appendChild(kanban);
 }
 
@@ -1444,8 +1460,8 @@ function renderMenuTab(parent) {
         const selectedCat = catFilter.value;
 
         const filtered = restaurantMenu.filter(item => {
-            const matchesQuery = item.name.toLowerCase().includes(query) || 
-                                 (item.description && item.description.toLowerCase().includes(query));
+            const matchesQuery = item.name.toLowerCase().includes(query) ||
+                (item.description && item.description.toLowerCase().includes(query));
             const matchesCat = selectedCat === 'all' || item.category === selectedCat;
             return matchesQuery && matchesCat;
         });
@@ -1459,7 +1475,7 @@ function renderMenuTab(parent) {
 
         filtered.forEach(item => {
             const card = ui.createElement('div', ['summary-card'], { style: item.isOutOfStock ? 'opacity: 0.65;' : '' });
-            
+
             // Item Image Rendering
             if (item.image) {
                 const img = ui.createElement('img', [], {
@@ -1472,14 +1488,14 @@ function renderMenuTab(parent) {
                 imgMock.textContent = item.category === 'Burgers' ? '🍔' : (item.category === 'Sides' ? '🍟' : '🥤');
                 card.appendChild(imgMock);
             }
-            
+
             card.appendChild(ui.createElementWithText('strong', item.name, [], { style: 'font-size: 1.05rem; display: block; margin-bottom: 0.25rem;' }));
             card.appendChild(ui.createElementWithText('div', `$${item.price.toFixed(2)}`, [], { style: 'font-weight: 800; color: var(--color-success); margin-bottom: 0.5rem;' }));
             card.appendChild(ui.createElementWithText('p', item.description || '', ['text-muted'], { style: 'font-size: 0.8rem; margin-bottom: 0.75rem; line-height: 1.4;' }));
-            
+
             // Actions
             const actions = ui.createElement('div', [], { style: 'display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-color); padding-top: 0.75rem; margin-top: 0.75rem;' });
-            
+
             // Out of stock switch
             const switchLabel = ui.createElement('label', ['switch-container']);
             const switchInput = ui.createElement('input', ['switch-input'], {
@@ -1519,14 +1535,14 @@ function renderMenuTab(parent) {
             switchLabel.appendChild(switchInput);
             switchLabel.appendChild(slider);
             switchLabel.appendChild(ui.createElementWithText('span', !item.isOutOfStock ? t('rest_menu_in_stock') : t('rest_menu_stock_out'), [], { style: 'font-size: 0.75rem;' }));
-            
+
             const editBtn = ui.createElementWithText('button', t('rest_menu_btn_edit'), ['btn', 'btn-secondary', 'btn-sm']);
             editBtn.addEventListener('click', () => showEditItemModal(item));
-            
+
             actions.appendChild(switchLabel);
             actions.appendChild(editBtn);
             card.appendChild(actions);
-            
+
             grid.appendChild(card);
         });
     };
@@ -1611,15 +1627,15 @@ function buildProductDiscountControl(currentDiscountIds, currentDiscountPct, ini
 
 function showEditItemModal(item) {
     const modalBody = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.75rem;' });
-    
+
     modalBody.appendChild(ui.createElementWithText('label', t('rest_menu_modal_name'), [], { style: 'font-size: 0.85rem;' }));
     const nameIn = ui.createElement('input', ['search-input'], { value: item.name, type: 'text', style: 'width: 100%' });
     modalBody.appendChild(nameIn);
-    
+
     modalBody.appendChild(ui.createElementWithText('label', t('rest_menu_modal_price'), [], { style: 'font-size: 0.85rem;' }));
     const priceIn = ui.createElement('input', ['search-input'], { value: item.price, type: 'number', style: 'width: 100%' });
     modalBody.appendChild(priceIn);
-    
+
     modalBody.appendChild(ui.createElementWithText('label', t('rest_menu_modal_desc'), [], { style: 'font-size: 0.85rem;' }));
     const descIn = ui.createElement('input', ['search-input'], { value: item.description || '', type: 'text', style: 'width: 100%' });
     modalBody.appendChild(descIn);
@@ -1662,7 +1678,7 @@ function showEditItemModal(item) {
     const imgInput = ui.createElement('input', [], { type: 'file', accept: 'image/*', style: 'display: none;' });
     const uploadImgBtn = ui.createElementWithText('button', getLanguage() === 'ar' ? 'اختر صورة' : 'Choose Image', ['btn', 'btn-secondary']);
     uploadImgBtn.addEventListener('click', () => imgInput.click());
-    
+
     const previewImg = ui.createElement('img', [], {
         src: getImageUrl(item.image || ''),
         style: 'width: 50px; height: 50px; border-radius: var(--radius-sm); border: 1px solid var(--border-color); object-fit: cover;'
@@ -1670,7 +1686,7 @@ function showEditItemModal(item) {
     if (!item.image) {
         previewImg.style.display = 'none';
     }
-    
+
     let uploadedPhotoKey = item.image || '';
     imgInput.addEventListener('change', async (e) => {
         const file = e.target.files[0];
@@ -1690,14 +1706,14 @@ function showEditItemModal(item) {
             }
         }
     });
-    
+
     imgRow.appendChild(uploadImgBtn);
     imgRow.appendChild(imgInput);
     imgRow.appendChild(previewImg);
     modalBody.appendChild(imgRow);
     const imgHint = ui.createElementWithText('span', getLanguage() === 'ar' ? 'الأبعاد الموصى بها: 600 × 600 بكسل (نسبة 1:1)' : 'Recommended dimensions: 600 × 600 px (1:1)', [], { style: 'font-size: 0.75rem; color: var(--text-muted); display: block; margin-top: 0.25rem;' });
     modalBody.appendChild(imgHint);
-    
+
     ui.showModal(t('rest_menu_modal_title'), modalBody, [
         {
             text: t('rest_menu_modal_save_btn'),
@@ -1880,16 +1896,16 @@ function showAddRestaurantMenuModal() {
     // Image upload row
     const imgWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem;' });
     imgWrap.appendChild(ui.createElementWithText('label', t('rest_add_modal_image'), [], { style: 'font-weight: 600; font-size: 0.85rem;' }));
-    
+
     const imgRow = ui.createElement('div', [], { style: 'display: flex; gap: 1rem; align-items: center;' });
     const imgInput = ui.createElement('input', [], { type: 'file', accept: 'image/*', style: 'display: none;' });
     const uploadImgBtn = ui.createElementWithText('button', getLanguage() === 'ar' ? 'اختر صورة' : 'Choose Image', ['btn', 'btn-secondary']);
     uploadImgBtn.addEventListener('click', () => imgInput.click());
-    
+
     const previewImg = ui.createElement('img', [], {
         style: 'width: 50px; height: 50px; border-radius: var(--radius-sm); border: 1px solid var(--border-color); object-fit: cover; display: none;'
     });
-    
+
     let uploadedPhotoKey = '';
     imgInput.addEventListener('change', async (e) => {
         const file = e.target.files[0];
@@ -1974,7 +1990,7 @@ function showAddRestaurantMenuModal() {
 
                 const price = parseFloat(priceVal);
                 const quantity = availInput.checked ? parseInt(qtyVal) : 0;
-                
+
                 const selectedCatName = catSel.value;
                 const matchedCategory = categories.find(c => c.name === selectedCatName);
                 const categoryId = matchedCategory ? matchedCategory.id : 3;
@@ -2056,7 +2072,7 @@ function normalizeSchedule(raw) {
             if (Array.isArray(parsed)) {
                 days = parsed.map(d => Number(d)).filter(d => !isNaN(d) && d >= 0 && d <= 6);
             }
-        } catch (_) {}
+        } catch (_) { }
     }
 
     days = Array.from(new Set(days)).sort((a, b) => a - b);
@@ -2080,7 +2096,7 @@ async function refreshSchedules() {
                 const u = JSON.parse(userJson);
                 creatorId = u.id != null ? Number(u.id) : null;
             }
-        } catch (_) {}
+        } catch (_) { }
 
         const bodyObj = { pageNumber: 1, pageSize: 100, enablePagination: false };
         if (creatorId) {
@@ -2091,7 +2107,7 @@ async function refreshSchedules() {
             method: 'PATCH',
             body: JSON.stringify(bodyObj)
         });
-        
+
         let list = [];
         if (res) {
             if (Array.isArray(res)) {
@@ -2162,7 +2178,7 @@ function renderScheduleTab(parent) {
 
     // Top Controls Bar
     const topBar = ui.createElement('div', ['glass-panel'], { style: 'display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; padding: 1.25rem 1.5rem;' });
-    
+
     const titleBlock = ui.createElement('div', []);
     titleBlock.appendChild(ui.createElementWithText('h3', t('rest_section_schedule_title'), [], { style: 'margin: 0 0 0.25rem 0; font-size: 1.2rem; color: var(--color-text-main); font-weight: 700;' }));
     titleBlock.appendChild(ui.createElementWithText('p', t('rest_section_schedule_sub'), ['text-secondary'], { style: 'margin: 0; font-size: 0.85rem;' }));
@@ -2185,7 +2201,7 @@ function renderScheduleTab(parent) {
             emptyCard.appendChild(ui.createElementWithText('div', '🕒', [], { style: 'font-size: 3rem; margin-bottom: 0.5rem;' }));
             emptyCard.appendChild(ui.createElementWithText('h4', t('sched_empty_title'), [], { style: 'margin: 0; font-size: 1.15rem; font-weight: 700;' }));
             emptyCard.appendChild(ui.createElementWithText('p', t('sched_empty_sub'), ['text-secondary'], { style: 'margin: 0; max-width: 420px; font-size: 0.88rem;' }));
-            
+
             const createBtn = ui.createElementWithText('button', t('sched_add_btn'), ['btn', 'btn-primary'], { style: 'margin-top: 0.5rem;' });
             createBtn.addEventListener('click', () => showScheduleModal(null, () => renderScheduleTab(parent)));
             emptyCard.appendChild(createBtn);
@@ -2199,14 +2215,14 @@ function renderScheduleTab(parent) {
 
             // Card Header (Badge + Actions)
             const cardHeader = ui.createElement('div', [], { style: 'display: flex; align-items: center; justify-content: space-between;' });
-            
+
             const badgeType = item.type === 1
                 ? ui.createElementWithText('span', t('sched_type_working'), [], { style: 'background: rgba(46, 213, 115, 0.15); color: #2ed573; padding: 0.25rem 0.65rem; border-radius: 20px; font-size: 0.78rem; font-weight: 700;' })
                 : ui.createElementWithText('span', t('sched_type_closed'), [], { style: 'background: rgba(255, 71, 87, 0.15); color: #ff4757; padding: 0.25rem 0.65rem; border-radius: 20px; font-size: 0.78rem; font-weight: 700;' });
             cardHeader.appendChild(badgeType);
 
             const actionsBox = ui.createElement('div', [], { style: 'display: flex; gap: 0.5rem;' });
-            
+
             const editBtn = ui.createElementWithText('button', '✏️', ['btn', 'btn-secondary', 'btn-sm'], { title: t('sched_edit_title'), style: 'padding: 0.35rem 0.6rem;' });
             editBtn.addEventListener('click', () => showScheduleModal(item, () => renderScheduleTab(parent)));
             actionsBox.appendChild(editBtn);
@@ -2243,7 +2259,7 @@ function renderScheduleTab(parent) {
             daysWrapper.appendChild(ui.createElementWithText('span', t('sched_days_label') + ':', ['text-secondary'], { style: 'font-size: 0.8rem;' }));
 
             const daysContainer = ui.createElement('div', [], { style: 'display: flex; flex-wrap: wrap; gap: 0.35rem;' });
-            
+
             const activeDays = Array.isArray(item.daysOfWeek) ? item.daysOfWeek : [];
             const orderedDays = [6, 0, 1, 2, 3, 4, 5];
             const filteredActiveDays = orderedDays.filter(d => activeDays.includes(d));
@@ -2292,7 +2308,7 @@ function showScheduleModal(existingItem = null, onSuccessCallback = null) {
 
     // Helpful Tip Banner
     const tipBox = ui.createElement('div', [], { style: 'padding: 0.75rem 1rem; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 8px; font-size: 0.8rem; color: var(--color-text-secondary, #94a3b8); line-height: 1.4;' });
-    tipBox.textContent = isAr 
+    tipBox.textContent = isAr
         ? '💡 ملحوظة: يمكنك تحديد الأيام التي تشترك في نفس ساعات العمل في ريكورد واحد. وإذا كانت هناك أيام أخرى بمواعيد مختلفة (مثل الجمعة)، قم بإضافتها في ريكورد جديد منفصل.'
         : '💡 Note: Select all days sharing identical working hours in a single record. For days with different operating hours, save them as separate schedule records.';
     modalContent.appendChild(tipBox);
@@ -2300,7 +2316,7 @@ function showScheduleModal(existingItem = null, onSuccessCallback = null) {
     // 1. Schedule Type
     const typeGroup = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.4rem;' });
     typeGroup.appendChild(ui.createElementWithText('label', t('sched_type_label'), [], { style: 'font-size: 0.85rem; font-weight: 600;' }));
-    
+
     const typeSelect = ui.createElement('select', ['select-input']);
     const optWorking = ui.createElementWithText('option', t('sched_type_working'), [], { value: '1' });
     const optClosed = ui.createElementWithText('option', t('sched_type_closed'), [], { value: '2' });
@@ -2316,12 +2332,12 @@ function showScheduleModal(existingItem = null, onSuccessCallback = null) {
         : [6, 0, 1, 2, 3, 4, 5];
 
     const daysGroup = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.5rem;' });
-    
+
     const daysHeader = ui.createElement('div', [], { style: 'display: flex; align-items: center; justify-content: space-between;' });
     daysHeader.appendChild(ui.createElementWithText('label', t('sched_days_label'), [], { style: 'font-size: 0.85rem; font-weight: 600;' }));
-    
+
     const quickActions = ui.createElement('div', [], { style: 'display: flex; gap: 0.4rem;' });
-    
+
     const btnAll = ui.createElementWithText('button', t('sched_select_all'), ['btn', 'btn-link', 'btn-xs'], { type: 'button', style: 'font-size: 0.75rem; text-decoration: underline;' });
     btnAll.addEventListener('click', () => {
         selectedDays = [6, 0, 1, 2, 3, 4, 5];
@@ -2340,7 +2356,7 @@ function showScheduleModal(existingItem = null, onSuccessCallback = null) {
     daysGroup.appendChild(daysHeader);
 
     const daysPillsContainer = ui.createElement('div', [], { style: 'display: flex; flex-wrap: wrap; gap: 0.4rem;' });
-    
+
     const orderedDays = [6, 0, 1, 2, 3, 4, 5];
     const updateDaysUI = () => {
         daysPillsContainer.replaceChildren();
@@ -2402,7 +2418,7 @@ function showScheduleModal(existingItem = null, onSuccessCallback = null) {
 
     // 4. Action Buttons
     const actionsRow = ui.createElement('div', [], { style: 'display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 0.5rem;' });
-    
+
     const cancelBtn = ui.createElementWithText('button', isAr ? 'إلغاء' : 'Cancel', ['btn', 'btn-secondary']);
     cancelBtn.addEventListener('click', () => ui.closeModal());
     actionsRow.appendChild(cancelBtn);
@@ -2545,17 +2561,17 @@ function renderCategoriesTab(parent) {
 
 function showAddCategoryModal() {
     const form = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 1rem; min-width: 320px;' });
-    
+
     const nameWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem;' });
     nameWrap.appendChild(ui.createElementWithText('label', t('rest_cat_modal_name'), [], { style: 'font-weight: 600; font-size: 0.85rem;' }));
     const nameIn = ui.createElement('input', ['search-input'], { type: 'text', placeholder: getLanguage() === 'ar' ? 'مثال: وجبات رئيسية' : 'e.g. Main Dishes' });
     nameWrap.appendChild(nameIn);
-    
+
     const descWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem;' });
     descWrap.appendChild(ui.createElementWithText('label', t('rest_cat_modal_desc'), [], { style: 'font-weight: 600; font-size: 0.85rem;' }));
     const descIn = ui.createElement('input', ['search-input'], { type: 'text', placeholder: getLanguage() === 'ar' ? 'وصف القسم...' : 'Category description...' });
     descWrap.appendChild(descIn);
-    
+
     // Photo/Image Row
     const photoLabel = ui.createElementWithText('label', getLanguage() === 'ar' ? 'صورة القسم:' : 'Category Image:', [], { style: 'font-weight: 600; font-size: 0.85rem;' });
     const imgRow = ui.createElement('div', [], { style: 'display: flex; gap: 1rem; align-items: center;' });
@@ -2567,7 +2583,7 @@ function showAddCategoryModal() {
         style: 'width: 50px; height: 50px; border-radius: var(--radius-sm); border: 1px solid var(--border-color); object-fit: cover; display: none;'
     });
     let uploadedPhotoKey = '';
-    
+
     imgInput.addEventListener('change', async (e) => {
         const file = e.target.files[0];
         if (file) {
@@ -2599,7 +2615,7 @@ function showAddCategoryModal() {
     form.appendChild(imgRow);
     const imgHint = ui.createElementWithText('span', getLanguage() === 'ar' ? 'الأبعاد الموصى بها: 400 × 400 بكسل (نسبة 1:1)' : 'Recommended dimensions: 400 × 400 px (1:1)', [], { style: 'font-size: 0.75rem; color: var(--text-muted); display: block; margin-top: 0.25rem;' });
     form.appendChild(imgHint);
-    
+
     ui.showModal(t('rest_cat_modal_add_title'), form, [
         {
             text: t('rest_cat_modal_save'),
@@ -2612,7 +2628,7 @@ function showAddCategoryModal() {
                     return;
                 }
                 const description = descIn.value.trim();
-                
+
                 const tempId = 'temp-' + Date.now();
                 const newCat = {
                     id: tempId,
@@ -2624,7 +2640,7 @@ function showAddCategoryModal() {
                 categories.push(newCat);
                 ui.closeModal();
                 renderActiveTab();
-                
+
                 try {
                     const response = await apiFetch('/api/v1/categories', {
                         method: 'POST',
@@ -2636,12 +2652,12 @@ function showAddCategoryModal() {
                         })
                     });
                     ui.showToast(getLanguage() === 'ar' ? 'تمت إضافة القسم بنجاح' : 'Category created successfully', 'success');
-                    
+
                     const idx = categories.findIndex(c => c.id === tempId);
                     if (idx !== -1 && response.result?.id) {
                         categories[idx].id = response.result.id;
                     }
-                    
+
                     await refreshCategories();
                     if (activeTab === 'categories') renderActiveTab();
                 } catch (err) {
@@ -2662,17 +2678,17 @@ function showAddCategoryModal() {
 
 function showEditCategoryModal(cat) {
     const form = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 1rem; min-width: 320px;' });
-    
+
     const nameWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem;' });
     nameWrap.appendChild(ui.createElementWithText('label', t('rest_cat_modal_name'), [], { style: 'font-weight: 600; font-size: 0.85rem;' }));
     const nameIn = ui.createElement('input', ['search-input'], { type: 'text', value: cat.name });
     nameWrap.appendChild(nameIn);
-    
+
     const descWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem;' });
     descWrap.appendChild(ui.createElementWithText('label', t('rest_cat_modal_desc'), [], { style: 'font-weight: 600; font-size: 0.85rem;' }));
     const descIn = ui.createElement('input', ['search-input'], { type: 'text', value: cat.description || '' });
     descWrap.appendChild(descIn);
-    
+
     // Photo/Image Row
     const photoLabel = ui.createElementWithText('label', getLanguage() === 'ar' ? 'صورة القسم:' : 'Category Image:', [], { style: 'font-weight: 600; font-size: 0.85rem;' });
     const imgRow = ui.createElement('div', [], { style: 'display: flex; gap: 1rem; align-items: center;' });
@@ -2685,7 +2701,7 @@ function showEditCategoryModal(cat) {
     });
     if (!cat.photo) previewImg.style.display = 'none';
     let uploadedPhotoKey = cat.photo || '';
-    
+
     imgInput.addEventListener('change', async (e) => {
         const file = e.target.files[0];
         if (file) {
@@ -2717,7 +2733,7 @@ function showEditCategoryModal(cat) {
     form.appendChild(imgRow);
     const imgHint = ui.createElementWithText('span', getLanguage() === 'ar' ? 'الأبعاد الموصى بها: 400 × 400 بكسل (نسبة 1:1)' : 'Recommended dimensions: 400 × 400 px (1:1)', [], { style: 'font-size: 0.75rem; color: var(--text-muted); display: block; margin-top: 0.25rem;' });
     form.appendChild(imgHint);
-    
+
     ui.showModal(t('rest_cat_modal_edit_title'), form, [
         {
             text: t('rest_cat_modal_save'),
@@ -2730,7 +2746,7 @@ function showEditCategoryModal(cat) {
                     return;
                 }
                 const description = descIn.value.trim();
-                
+
                 const oldName = cat.name;
                 const originalCats = [...categories];
                 restaurantMenu.forEach(p => {
@@ -2738,14 +2754,14 @@ function showEditCategoryModal(cat) {
                         p.category = name;
                     }
                 });
-                
+
                 cat.name = name;
                 cat.description = description;
                 cat.photo = uploadedPhotoKey;
-                
+
                 ui.closeModal();
                 renderActiveTab();
-                
+
                 try {
                     await apiFetch('/api/v1/categories', {
                         method: 'PUT',
@@ -2777,14 +2793,14 @@ function showEditCategoryModal(cat) {
 }
 
 async function handleDeleteCategory(cat) {
-    const confirmMsg = getLanguage() === 'ar' 
+    const confirmMsg = getLanguage() === 'ar'
         ? `هل أنت متأكد من حذف قسم "${cat.name}"؟ سيتم نقل المنتجات المرتبطة به ليكون بدون قسم.`
         : `Are you sure you want to delete category "${cat.name}"? Products inside will remain category-less.`;
-        
+
     if (confirm(confirmMsg)) {
         const originalMenu = [...restaurantMenu];
         const originalCats = [...categories];
-        
+
         restaurantMenu.forEach(p => {
             if (p.category === cat.name) {
                 p.category = 'Burgers';
@@ -2792,7 +2808,7 @@ async function handleDeleteCategory(cat) {
         });
         categories = categories.filter(c => c.id !== cat.id);
         renderActiveTab();
-        
+
         try {
             await apiFetch(`/api/v1/categories/${cat.id}`, {
                 method: 'DELETE'
@@ -2832,7 +2848,7 @@ function formatDateTime(dateStr) {
    ========================================================================== */
 function renderDiscountsTab(parent) {
     const wrapper = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 1rem; width: 100%;' });
-    
+
     // Top Bar with Add Discount Button
     const topBar = ui.createElement('div', [], { style: 'display: flex; justify-content: flex-end;' });
     const addDiscountBtn = ui.createElementWithText('button', t('rest_discount_add_btn'), ['btn', 'btn-primary']);
@@ -2842,7 +2858,7 @@ function renderDiscountsTab(parent) {
 
     // Grid Container for cards
     const grid = ui.createElement('div', ['analytics-grid'], { style: 'margin-top: 1rem; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.5rem; width: 100%;' });
-    
+
     if (discounts.length === 0) {
         const emptyState = ui.createElement('div', ['glass-panel'], { style: 'text-align: center; padding: 3rem 1.5rem; width: 100%; grid-column: 1 / -1;' });
         emptyState.appendChild(ui.createElementWithText('h3', t('rest_discount_empty_title') || '🎟️ No Discounts', [], { style: 'margin-bottom: 0.5rem; font-size: 1.25rem;' }));
@@ -2851,21 +2867,21 @@ function renderDiscountsTab(parent) {
     } else {
         discounts.forEach(disc => {
             const card = ui.createElement('div', ['summary-card'], { style: 'display: flex; flex-direction: column; justify-content: space-between; min-height: 220px; position: relative;' });
-            
+
             // Header: Name and Delete button
             const header = ui.createElement('div', [], { style: 'display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; width: 100%;' });
             const name = ui.createElementWithText('strong', disc.name || '-', [], { style: 'font-size: 1.1rem; font-weight: 700; color: var(--text-primary); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;' });
             const deleteBtn = ui.createElementWithText('button', '🗑️', ['btn', 'btn-danger', 'btn-sm'], { style: 'padding: 0.25rem 0.5rem; font-size: 0.85rem; border-radius: 4px;' });
             deleteBtn.addEventListener('click', () => handleDeleteDiscount(disc));
-            
+
             header.appendChild(name);
             header.appendChild(deleteBtn);
             card.appendChild(header);
-            
+
             // Description
             const desc = ui.createElementWithText('p', disc.description || '-', ['text-secondary'], { style: 'font-size: 0.8rem; margin: 0.5rem 0; flex-grow: 1; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;' });
             card.appendChild(desc);
-            
+
             // Large Percentage Value
             const percentContainer = ui.createElement('div', [], { style: 'display: flex; align-items: baseline; gap: 0.35rem; margin: 0.75rem 0;' });
             const percentVal = ui.createElementWithText('span', `${disc.percentage}%`, [], { style: 'font-size: 2.25rem; font-weight: 800; color: var(--rest-color); font-family: "Outfit", sans-serif;' });
@@ -2873,36 +2889,36 @@ function renderDiscountsTab(parent) {
             percentContainer.appendChild(percentVal);
             percentContainer.appendChild(percentLabel);
             card.appendChild(percentContainer);
-            
+
             // Footer: Start and End Times formatted beautifully
             const cardFooter = ui.createElement('div', [], { style: 'border-top: 1px solid var(--border-color); padding-top: 0.75rem; display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.75rem; color: var(--text-muted);' });
-            
+
             const startDiv = ui.createElement('div', [], { style: 'display: flex; align-items: center; gap: 0.35rem;' });
             startDiv.innerHTML = `<span>🟢</span> <span>${getLanguage() === 'ar' ? 'البدء:' : 'Starts:'} ${formatDateTime(disc.startDate)}</span>`;
-            
+
             const endDiv = ui.createElement('div', [], { style: 'display: flex; align-items: center; gap: 0.35rem;' });
             endDiv.innerHTML = `<span>🔴</span> <span>${getLanguage() === 'ar' ? 'الانتهاء:' : 'Ends:'} ${formatDateTime(disc.endDate)}</span>`;
-            
+
             cardFooter.appendChild(startDiv);
             cardFooter.appendChild(endDiv);
             card.appendChild(cardFooter);
-            
+
             grid.appendChild(card);
         });
     }
-    
+
     wrapper.appendChild(grid);
     parent.appendChild(wrapper);
 }
 
 function showAddDiscountModal() {
     const form = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 1rem; min-width: 320px;' });
-    
+
     const nameWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem;' });
     nameWrap.appendChild(ui.createElementWithText('label', t('rest_discount_modal_name'), [], { style: 'font-weight: 600; font-size: 0.85rem;' }));
     const nameIn = ui.createElement('input', ['search-input'], { type: 'text', placeholder: getLanguage() === 'ar' ? 'مثال: خصم الصيف' : 'e.g. Summer Discount' });
     nameWrap.appendChild(nameIn);
-    
+
     const descWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem;' });
     descWrap.appendChild(ui.createElementWithText('label', t('rest_discount_modal_desc'), [], { style: 'font-weight: 600; font-size: 0.85rem;' }));
     const descIn = ui.createElement('input', ['search-input'], { type: 'text', placeholder: getLanguage() === 'ar' ? 'وصف الخصم...' : 'Discount description...' });
@@ -2922,13 +2938,13 @@ function showAddDiscountModal() {
     endWrap.appendChild(ui.createElementWithText('label', t('rest_discount_modal_end'), [], { style: 'font-weight: 600; font-size: 0.85rem;' }));
     const endIn = ui.createElement('input', ['search-input'], { type: 'datetime-local' });
     endWrap.appendChild(endIn);
-    
+
     form.appendChild(nameWrap);
     form.appendChild(descWrap);
     form.appendChild(pctWrap);
     form.appendChild(startWrap);
     form.appendChild(endWrap);
-    
+
     ui.showModal(t('rest_discount_modal_add_title'), form, [
         {
             text: t('rest_discount_modal_save'),
@@ -2960,7 +2976,7 @@ function showAddDiscountModal() {
 
                 const startDate = startDateVal ? new Date(startDateVal).toISOString() : null;
                 const endDate = endDateVal ? new Date(endDateVal).toISOString() : null;
-                
+
                 const tempId = 'temp-' + Date.now();
                 const newDisc = {
                     id: tempId,
@@ -2975,7 +2991,7 @@ function showAddDiscountModal() {
                 discounts.push(newDisc);
                 ui.closeModal();
                 renderActiveTab();
-                
+
                 try {
                     const response = await apiFetch('/api/v1/discounts', {
                         method: 'POST',
@@ -2989,12 +3005,12 @@ function showAddDiscountModal() {
                         })
                     });
                     ui.showToast(getLanguage() === 'ar' ? 'تمت إضافة الخصم بنجاح' : 'Discount created successfully', 'success');
-                    
+
                     const idx = discounts.findIndex(d => d.id === tempId);
                     if (idx !== -1 && response.result?.id) {
                         discounts[idx].id = response.result.id;
                     }
-                    
+
                     await refreshDiscounts();
                     if (activeTab === 'discounts') renderActiveTab();
                 } catch (err) {
@@ -3014,15 +3030,15 @@ function showAddDiscountModal() {
 }
 
 async function handleDeleteDiscount(disc) {
-    const confirmMsg = getLanguage() === 'ar' 
+    const confirmMsg = getLanguage() === 'ar'
         ? `هل أنت متأكد من حذف الخصم "${disc.name}"؟`
         : `Are you sure you want to delete discount "${disc.name}"?`;
-        
+
     if (confirm(confirmMsg)) {
         const originalDiscounts = [...discounts];
         discounts = discounts.filter(d => d.id !== disc.id);
         renderActiveTab();
-        
+
         try {
             await apiFetch(`/api/v1/discounts/${disc.id}`, {
                 method: 'DELETE'
@@ -3258,7 +3274,7 @@ function renderOffersTab(parent) {
             // Header row: name + actions (Edit + Delete)
             const headerRow = ui.createElement('div', [], { style: 'display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.4rem;' });
             headerRow.appendChild(ui.createElementWithText('strong', offer.name || '-', [], { style: 'font-size: 1.05rem; font-weight: 700; color: var(--text-primary); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;' }));
-            
+
             const btnGroup = ui.createElement('div', [], { style: 'display: flex; gap: 0.35rem; flex-shrink: 0;' });
             const editBtn = ui.createElementWithText('button', '✏️', ['btn', 'btn-secondary', 'btn-sm'], { style: 'padding: 0.25rem 0.5rem; font-size: 0.85rem; border-radius: 4px;' });
             editBtn.addEventListener('click', () => showEditRestOfferModal(offer));
@@ -3278,20 +3294,20 @@ function renderOffersTab(parent) {
 
             // Products included in this offer
             if (offer.products && offer.products.length > 0) {
-                const prodContainer = ui.createElement('div', [], { 
-                    style: 'margin: 0.4rem 0; padding: 0.4rem 0.6rem; background: rgba(0, 0, 0, 0.02); border-radius: 6px; border: 1px dashed var(--border-color); max-height: 90px; overflow-y: auto;' 
+                const prodContainer = ui.createElement('div', [], {
+                    style: 'margin: 0.4rem 0; padding: 0.4rem 0.6rem; background: rgba(0, 0, 0, 0.02); border-radius: 6px; border: 1px dashed var(--border-color); max-height: 90px; overflow-y: auto;'
                 });
-                const prodTitle = ui.createElementWithText('div', isAr ? '📦 المنتجات المشمولة:' : '📦 Included Products:', [], { 
-                    style: 'font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.25rem;' 
+                const prodTitle = ui.createElementWithText('div', isAr ? '📦 المنتجات المشمولة:' : '📦 Included Products:', [], {
+                    style: 'font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 0.25rem;'
                 });
                 prodContainer.appendChild(prodTitle);
-                
+
                 const prodList = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.2rem;' });
                 offer.products.forEach(p => {
                     const item = ui.createElement('div', [], { style: 'display: flex; justify-content: space-between; align-items: center; font-size: 0.72rem; color: var(--text-primary);' });
                     const qtyStr = p.quantity && p.quantity > 1 ? ` (x${p.quantity})` : '';
-                    item.appendChild(ui.createElementWithText('span', `• ${p.name || (isAr ? 'منتج غير معروف' : 'Unknown Product')}${qtyStr}`, [], { 
-                        style: 'text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 70%;' 
+                    item.appendChild(ui.createElementWithText('span', `• ${p.name || (isAr ? 'منتج غير معروف' : 'Unknown Product')}${qtyStr}`, [], {
+                        style: 'text-overflow: ellipsis; overflow: hidden; white-space: nowrap; max-width: 70%;'
                     }));
                     if (p.price) {
                         item.appendChild(ui.createElementWithText('span', `$${p.price.toFixed(2)}`, ['text-muted'], { style: 'font-family: "Outfit", sans-serif; font-size: 0.68rem;' }));
@@ -3689,7 +3705,7 @@ function renderProfileTab(parent) {
     // 1. Busy Status Toggle ("زرار المشغول")
     const isBusyNow = !!(user.busy === true || user.busy === 1);
     const busyBox = ui.createElement('div', [], { style: 'padding: 1.1rem 1.25rem; background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 8px; display: flex; flex-direction: column; justify-content: space-between; gap: 0.75rem;' });
-    
+
     const busyHeader = ui.createElement('div', []);
     busyHeader.appendChild(ui.createElementWithText('strong', isAr ? '🔥 حالة الانشغال (زرار المشغول)' : '🔥 Busy Status Toggle', [], { style: 'display: block; font-size: 0.95rem; color: #d97706; margin-bottom: 0.25rem;' }));
     busyHeader.appendChild(ui.createElementWithText('span', isAr ? 'تفعيل وضع "مشغول" ينبه العملاء في تطبيق الهاتف بوجود ضغط طلبات.' : 'Marking as busy informs app customers of high order volume.', ['text-secondary'], { style: 'font-size: 0.8rem;' }));
@@ -3731,9 +3747,9 @@ function renderProfileTab(parent) {
 
     // ── SECTION 2: Official Working Hours Schedule (جدول مواعيد العمل والدوام) ──
     const schedPanel = ui.createElement('div', ['glass-panel'], { style: 'padding: 1.5rem;' });
-    
+
     const schedHeader = ui.createElement('div', [], { style: 'display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.25rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border-color);' });
-    
+
     const schedTitleBox = ui.createElement('div', []);
     schedTitleBox.appendChild(ui.createElementWithText('h3', isAr ? '🕒 مواعيد وأوقات العمل الرسمية' : '🕒 Official Working Hours Schedule', [], { style: 'margin: 0 0 0.25rem 0; font-size: 1.1rem; font-weight: 700;' }));
     schedTitleBox.appendChild(ui.createElementWithText('p', isAr ? 'تحديد ساعات العمل الرسمية وأيام الدوام الأسبوعية للمطعم' : 'Define official operating hours and weekly working days', ['text-secondary'], { style: 'margin: 0; font-size: 0.82rem;' }));
@@ -3755,7 +3771,7 @@ function renderProfileTab(parent) {
             emptyCard.appendChild(ui.createElementWithText('div', '🕒', [], { style: 'font-size: 2.5rem;' }));
             emptyCard.appendChild(ui.createElementWithText('h4', t('sched_empty_title'), [], { style: 'margin: 0; font-size: 1.05rem; font-weight: 700;' }));
             emptyCard.appendChild(ui.createElementWithText('p', t('sched_empty_sub'), ['text-secondary'], { style: 'margin: 0; max-width: 400px; font-size: 0.82rem;' }));
-            
+
             const createBtn = ui.createElementWithText('button', t('sched_add_btn'), ['btn', 'btn-primary'], { style: 'margin-top: 0.25rem;' });
             createBtn.addEventListener('click', () => showScheduleModal(null, () => renderProfileTab(parent)));
             emptyCard.appendChild(createBtn);
@@ -3768,14 +3784,14 @@ function renderProfileTab(parent) {
             const card = ui.createElement('div', [], { style: 'padding: 1.1rem; background: rgba(255,255,255,0.04); border: 1px solid var(--border-color); border-radius: 8px; display: flex; flex-direction: column; gap: 0.85rem; position: relative; border-top: 4px solid ' + (item.type === 1 ? '#2ed573' : '#ff4757') + ';' });
 
             const cardHeader = ui.createElement('div', [], { style: 'display: flex; align-items: center; justify-content: space-between;' });
-            
+
             const badgeType = item.type === 1
                 ? ui.createElementWithText('span', t('sched_type_working'), [], { style: 'background: rgba(46, 213, 115, 0.15); color: #2ed573; padding: 0.2rem 0.55rem; border-radius: 20px; font-size: 0.75rem; font-weight: 700;' })
                 : ui.createElementWithText('span', t('sched_type_closed'), [], { style: 'background: rgba(255, 71, 87, 0.15); color: #ff4757; padding: 0.2rem 0.55rem; border-radius: 20px; font-size: 0.75rem; font-weight: 700;' });
             cardHeader.appendChild(badgeType);
 
             const actionsBox = ui.createElement('div', [], { style: 'display: flex; gap: 0.4rem;' });
-            
+
             const editBtn = ui.createElementWithText('button', '✏️', ['btn', 'btn-secondary', 'btn-sm'], { title: t('sched_edit_title'), style: 'padding: 0.25rem 0.5rem;' });
             editBtn.addEventListener('click', () => showScheduleModal(item, () => renderProfileTab(parent)));
             actionsBox.appendChild(editBtn);
@@ -3864,7 +3880,7 @@ function renderProfileTab(parent) {
     const photoInput = ui.createElement('input', [], { type: 'file', accept: 'image/*', style: 'display: none;' });
     const photoBtn = ui.createElementWithText('button', t('rest_profile_photo_btn'), ['btn', 'btn-secondary', 'btn-sm']);
     photoBtn.addEventListener('click', () => photoInput.click());
-    
+
     photoInput.addEventListener('change', async (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -3889,7 +3905,7 @@ function renderProfileTab(parent) {
     const imgHintText = isAr ? '📷 الأبعاد الموصى بها: 800 × 500 بكسل (نسبة 16:9 أفقية) لضمان وضوح الصورة كغلاف للشاشة الرئيسية وشاشة المطعم.' : '📷 Recommended dimensions: 800 × 500 px (16:9 landscape) for optimal store banner & card quality.';
     const imgHint = ui.createElementWithText('span', imgHintText, [], { style: 'font-size: 0.75rem; color: var(--text-muted); display: block; margin-top: 0.25rem;' });
     photoBtnGroup.appendChild(imgHint);
-    
+
     photoRow.appendChild(photoPreview);
     photoRow.appendChild(photoBtnGroup);
     infoPanel.appendChild(photoRow);
@@ -4058,11 +4074,11 @@ function renderBranchesTab(parent) {
             const card = ui.createElement('div', ['summary-card'], { style: 'display: flex; flex-direction: column; justify-content: space-between; min-height: 180px; position: relative; overflow: hidden;' });
 
             const content = ui.createElement('div');
-            
+
             // Branch Name
             const nameRow = ui.createElement('div', [], { style: 'display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;' });
             nameRow.appendChild(ui.createElementWithText('strong', b.name || (getLanguage() === 'ar' ? 'فرع بدون اسم' : 'Unnamed Branch'), [], { style: 'font-size: 1.1rem;' }));
-            
+
             if (b.base) {
                 nameRow.appendChild(ui.createElementWithText('span', getLanguage() === 'ar' ? 'الرئيسي' : 'Base', ['badge', 'badge-success']));
             }
@@ -4078,10 +4094,10 @@ function renderBranchesTab(parent) {
 
             // Action Buttons
             const actions = ui.createElement('div', [], { style: 'display: flex; gap: 0.5rem; border-top: 1px solid var(--border-color); padding-top: 0.75rem; margin-top: auto;' });
-            
+
             const editBtn = ui.createElementWithText('button', t('rest_menu_btn_edit'), ['btn', 'btn-secondary', 'btn-sm']);
             editBtn.addEventListener('click', () => showEditBranchModal(b));
-            
+
             const deleteBtn = ui.createElementWithText('button', getLanguage() === 'ar' ? 'حذف' : 'Delete', ['btn', 'btn-danger', 'btn-sm']);
             deleteBtn.addEventListener('click', () => handleDeleteBranch(b));
 
@@ -4452,10 +4468,10 @@ function showEditBranchModal(b) {
 }
 
 function handleDeleteBranch(b) {
-    const confirmMsg = getLanguage() === 'ar' 
+    const confirmMsg = getLanguage() === 'ar'
         ? `هل أنت متأكد من حذف الفرع "${b.name}"؟`
         : `Are you sure you want to delete branch "${b.name}"?`;
-        
+
     const body = ui.createElementWithText('p', confirmMsg);
     ui.showModal(
         getLanguage() === 'ar' ? 'تأكيد الحذف' : 'Confirm Delete',
@@ -4469,7 +4485,7 @@ function handleDeleteBranch(b) {
                     const originalBranches = [...branches];
                     branches = branches.filter(x => x.id !== b.id);
                     renderActiveTab();
-                    
+
                     try {
                         await apiFetch(`/api/v1/locations/${b.id}`, {
                             method: 'DELETE'
@@ -4545,7 +4561,7 @@ async function renderChatsTab(parent) {
 
         const userJson = localStorage.getItem('qs_vendor_user');
         let myId = 0;
-        try { if (userJson) myId = JSON.parse(userJson).id; } catch(e){}
+        try { if (userJson) myId = JSON.parse(userJson).id; } catch (e) { }
 
         let activeItem = null;
         chatsList.forEach(chat => {
@@ -4639,7 +4655,7 @@ function renderChatRoom(container, recipientId, recipientName) {
 
     const userJson = localStorage.getItem('qs_vendor_user');
     let myId = 0;
-    try { if (userJson) myId = JSON.parse(userJson).id; } catch(e){}
+    try { if (userJson) myId = JSON.parse(userJson).id; } catch (e) { }
 
     const appendMessages = (messages) => {
         messagesContainer.replaceChildren();
@@ -4676,12 +4692,12 @@ function renderChatRoom(container, recipientId, recipientName) {
                 })
             });
             const list = data && data.result ? data.result : [];
-            list.sort((a,b) => (a.id || 0) - (b.id || 0));
+            list.sort((a, b) => (a.id || 0) - (b.id || 0));
             if (list.length !== lastMessageCount) {
                 lastMessageCount = list.length;
                 appendMessages(list);
             }
-        } catch(e) {
+        } catch (e) {
             console.error('Failed to load chat messages:', e);
         }
     };
@@ -4705,7 +4721,7 @@ function renderChatRoom(container, recipientId, recipientName) {
                 body: JSON.stringify({ recipientId, content: text, messageType: 0 })
             });
             await loadMessages();
-        } catch(e) {
+        } catch (e) {
             console.error('Failed to send message:', e);
         }
     };
@@ -4725,21 +4741,21 @@ async function openDashboardChat(recipientId, recipientName) {
     }
 
     const modalBody = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; height: 400px; justify-content: space-between;' });
-    
-    const messagesContainer = ui.createElement('div', [], { 
-        id: 'chat-messages-container', 
-        style: 'flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: #f8f9fa; margin-bottom: 12px;' 
+
+    const messagesContainer = ui.createElement('div', [], {
+        id: 'chat-messages-container',
+        style: 'flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: #f8f9fa; margin-bottom: 12px;'
     });
     modalBody.appendChild(messagesContainer);
 
     const inputRow = ui.createElement('div', [], { style: 'display: flex; gap: 8px; align-items: center;' });
-    const textIn = ui.createElement('input', ['search-input'], { 
-        type: 'text', 
+    const textIn = ui.createElement('input', ['search-input'], {
+        type: 'text',
         placeholder: getLanguage() === 'ar' ? 'اكتب رسالة...' : 'Type a message...',
         style: 'flex: 1; margin: 0;'
     });
     const sendBtn = ui.createElementWithText('button', getLanguage() === 'ar' ? 'إرسال' : 'Send', ['btn', 'btn-primary']);
-    
+
     inputRow.appendChild(textIn);
     inputRow.appendChild(sendBtn);
     modalBody.appendChild(inputRow);
@@ -4748,7 +4764,7 @@ async function openDashboardChat(recipientId, recipientName) {
     let myId = 0;
     try {
         if (userJson) myId = JSON.parse(userJson).id;
-    } catch(e){}
+    } catch (e) { }
 
     const appendMessages = (messages) => {
         messagesContainer.replaceChildren();
@@ -4760,11 +4776,10 @@ async function openDashboardChat(recipientId, recipientName) {
             const isMe = msg.creatorId === myId;
             const bubbleWrapper = ui.createElement('div', [], { style: `display: flex; justify-content: ${isMe ? 'flex-end' : 'flex-start'}; width: 100%;` });
             const bubble = ui.createElementWithText('div', msg.content || '', [], {
-                style: `padding: 8px 12px; border-radius: 12px; max-width: 75%; font-size: 0.85rem; word-break: break-word; ${
-                    isMe 
-                    ? 'background: var(--rest-color); color: white; border-bottom-right-radius: 2px;' 
+                style: `padding: 8px 12px; border-radius: 12px; max-width: 75%; font-size: 0.85rem; word-break: break-word; ${isMe
+                    ? 'background: var(--rest-color); color: white; border-bottom-right-radius: 2px;'
                     : 'background: #e9ecef; color: var(--color-text-primary); border-bottom-left-radius: 2px;'
-                }`
+                    }`
             });
             bubbleWrapper.appendChild(bubble);
             messagesContainer.appendChild(bubbleWrapper);
@@ -4785,12 +4800,12 @@ async function openDashboardChat(recipientId, recipientName) {
                 })
             });
             const list = data && data.result ? data.result : [];
-            list.sort((a,b) => (a.id || 0) - (b.id || 0));
+            list.sort((a, b) => (a.id || 0) - (b.id || 0));
             if (list.length !== lastMessageCount) {
                 lastMessageCount = list.length;
                 appendMessages(list);
             }
-        } catch(e) {
+        } catch (e) {
             console.error('Failed to load chat messages:', e);
         }
     };
@@ -4818,7 +4833,7 @@ async function openDashboardChat(recipientId, recipientName) {
                 })
             });
             await loadMessages();
-        } catch(e) {
+        } catch (e) {
             console.error('Failed to send message:', e);
         }
     };

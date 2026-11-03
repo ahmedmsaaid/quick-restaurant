@@ -5,7 +5,7 @@
  * Type = 1 (Supermarket)
  */
 
-import * as ui from './ui-utils.js?v=29.0';
+import * as ui from './ui-utils.js?v=42.0';
 import { t, getLanguage, setLanguage, initTranslations, subscribeLangChange } from './translations.js';
 import { ApiClient, ImageService, Logger } from './core.js';
 import { initFCMNotificationService } from './fcm-helper.js';
@@ -320,7 +320,11 @@ async function refreshOrders() {
             console.log("DEBUG - myProductIds Set:", Array.from(myProductIds));
             const fetchedOrders = data.result.filter(ord => {
                 // Must match this market's userId or products
-                if (ord.userId && parseInt(ord.userId) === parseInt(myMarketId)) return true;
+                const ordVendorId = ord.userId || (ord.user && ord.user.id) || (ord.userLocation && ord.userLocation.creatorId);
+                if (ordVendorId && parseInt(ordVendorId) === parseInt(myMarketId)) return true;
+                if (ord.offerId && (offers || []).some(of => parseInt(of.id) === parseInt(ord.offerId))) return true;
+                const checkProds = ord.products || ord.orderProducts || ord.OrderProducts || [];
+                if (checkProds.length > 0 && checkProds.some(p => myProductIds.has(parseInt(p.productId || (p.product && p.product.id) || (p.Product && p.Product.id))))) return true;
                 if (ord.products && ord.products.length > 0) {
                     return ord.products.some(p => myProductIds.has(p.productId));
                 }
@@ -343,42 +347,51 @@ async function refreshOrders() {
                     items,
                     totalPrice: ord.totalPrice - (ord.deliveryFee || 0) - (ord.orderFee || 0),
                     deliveryFee: ord.deliveryFee || 0,
+                    orderFee: parseFloat(ord.orderFee || (ord.rawOrder && ord.rawOrder.orderFee) || 0),
+                    commission: parseFloat(ord.commission || (ord.rawOrder && ord.rawOrder.commission) || ord.orderFee || (ord.rawOrder && ord.rawOrder.orderFee) || 0),
+                    netEarnings: parseFloat(ord.netEarnings || (ord.rawOrder && ord.rawOrder.netEarnings) || 0),
+                    type: 1,
                     finalTotal: ord.totalPrice,
                     paymentMethod: ord.paymentMethod || (ord.rawOrder && ord.rawOrder.paymentMethod) || 0,
                     notes: ord.note || ord.notes || '',
                     customerName: ord.creator ? ord.creator.name : (ord.user && ord.user.role === 2 ? ord.user.name : (getLanguage() === 'ar' ? 'عميل' : 'Customer')),
                     customerPhone: ord.creator ? ord.creator.phone : (ord.user && ord.user.role === 2 ? ord.user.phone : ''),
-                    createdAt: ord.createdAt,
+                    createdAt: ord.createdAt || ord.createdOn,
                     rawOrder: ord
                 };
             });
 
             // Detect new incoming pending orders for notifications
             if (knownOrderIds !== null) {
-                const newIncoming = fetchedOrders.filter(o => !knownOrderIds.has(o.id) && (o.status === 'new' || o.status === 'pending_payment' || o.status === 'pending'));
+                const prevConfirmedIds = new Set(orders.filter(o => o.status === 'confirmed').map(o => o.id));
+                const newIncoming = fetchedOrders.filter(o => (o.status === 'confirmed' && !prevConfirmedIds.has(o.id)) || (!knownOrderIds.has(o.id) && o.status === 'waiting_for_driver'));
                 if (newIncoming.length > 0) {
                     console.log('🛒 New incoming supermarket orders detected:', newIncoming);
                     ui.showFullScreenOrderAlert(newIncoming[0].id, () => {
                         const ordersTab = document.getElementById('mkt-menu-orders');
                         if (ordersTab) ordersTab.click();
                     });
-                    
+
                     newIncoming.forEach(ord => {
-                        const title = getLanguage() === 'ar' 
-                            ? `🛒 طلب سوبر ماركت جديد! (#${ord.id})` 
-                            : `🛒 New Supermarket Order! (#${ord.id})`;
+                        const title = getLanguage() === 'ar'
+                            ? (ord.status === 'confirmed' ? `✅ الطيار قَبِل الطلب (#${ord.id}) - ابدأ التجهيز!` : `⏳ طلب جديد بانتظار طيار (#${ord.id})`)
+                            : (ord.status === 'confirmed' ? `✅ Captain Accepted Order (#${ord.id}) - Start Prep!` : `⏳ New Order Awaiting Captain (#${ord.id})`);
                         const body = getLanguage() === 'ar'
-                            ? `طلب جديد من ${ord.customerName} - الإجمالي: ${ord.totalPrice} د.ع`
-                            : `New supermarket order from ${ord.customerName} - Total: ${ord.totalPrice} IQD`;
-                        
+                            ? `طلب جديد من ${ord.customerName} - الإجمالي: ${ord.finalTotal || ord.totalPrice} ج.م`
+                            : `New supermarket order from ${ord.customerName} - Total: ${ord.finalTotal || ord.totalPrice} EGP`;
+
                         ui.sendDesktopNotification(title, body, { tag: 'order-' + ord.id });
                         ui.showToast(getLanguage() === 'ar' ? `وصل طلب جديد! #${ord.id}` : `New order received! #${ord.id}`, 'info');
                     });
                 }
             }
 
+            const prevSig = orders.map(o => `${o.id}:${o.status}`).join('|');
+            const nextSig = fetchedOrders.map(o => `${o.id}:${o.status}`).join('|');
+            const hasChanges = prevSig !== nextSig;
             knownOrderIds = new Set(fetchedOrders.map(o => o.id));
             orders = fetchedOrders;
+            return hasChanges;
         }
     } catch (e) { console.error('Failed to load orders:', e); }
 }
@@ -499,7 +512,7 @@ async function updateStatus(orderId, localStatus) {
     try {
         let backendStatus = mapLocalStatusToBackend(localStatus);
         const order = orders.find(o => o.id === orderId.toString());
-        
+
         const rowVersion = order && order.rawOrder ? order.rawOrder.rowVersion : null;
         await apiFetch('/api/v1/orders/status', {
             method: 'PUT',
@@ -533,7 +546,7 @@ async function updateNotificationCount() {
         if (res && res.success) {
             serverCount = parseInt(res.result || 0);
         }
-        const pendingCount = orders.filter(o => o.status === 'new' || o.status === 'pending_payment' || o.status === 'pending').length;
+        const pendingCount = orders.filter(o => o.status === 'confirmed' || o.status === 'waiting_for_driver').length;
         const totalCount = Math.max(serverCount, pendingCount);
         if (totalCount > 0) {
             badge.textContent = totalCount;
@@ -543,7 +556,7 @@ async function updateNotificationCount() {
         }
     } catch (e) {
         console.error('Failed to fetch notification count:', e);
-        const pendingCount = orders.filter(o => o.status === 'new' || o.status === 'pending_payment' || o.status === 'pending').length;
+        const pendingCount = orders.filter(o => o.status === 'confirmed' || o.status === 'waiting_for_driver').length;
         if (pendingCount > 0) {
             badge.textContent = pendingCount;
             badge.style.display = 'flex';
@@ -667,7 +680,7 @@ function updateHeaderVendorName() {
     const headerEl = document.getElementById('header-vendor-name');
     const avatarEl = document.getElementById('header-vendor-avatar');
     const profile = JSON.parse(localStorage.getItem('qs_vendor_user') || '{}');
-    
+
     if (headerEl) {
         const name = profile.name || profile.storeName || (getLanguage() === 'ar' ? 'سوبر ماركت' : 'Market');
         headerEl.textContent = name;
@@ -784,17 +797,17 @@ export async function initMarket() {
     // Poll orders every 10s — only re-render if on orders tab
     setInterval(async () => {
         try {
-            await refreshOrders();
+            const hasOrderChanges = await refreshOrders();
             updateBadges();
             checkBuzzerAlarm();
-            if (activeTab === 'orders') renderActiveTab();
+            if (hasOrderChanges && (activeTab === 'orders' || activeTab === 'overview')) renderActiveTab();
         } catch (e) { console.error('Error polling orders:', e); }
-    }, 10000);
+    }, 5000);
 }
 
 // Check if there are new pending orders for this store to sound alarm
 function checkBuzzerAlarm() {
-    const hasIncoming = orders.some(o => o.status === 'new' || o.status === 'pending_payment' || o.status === 'pending');
+    const hasIncoming = orders.some(o => o.status === 'confirmed');
     if (hasIncoming) {
         ui.startAlarmSound();
     } else {
@@ -805,7 +818,7 @@ function checkBuzzerAlarm() {
 // ─── Navigation ───────────────────────────────────────────────────────────────
 function updateBadges() {
     const badge = document.getElementById('mkt-badge-orders');
-    const pendingCount = orders.filter(o => o.status === 'new' || o.status === 'pending_payment' || o.status === 'pending').length;
+    const pendingCount = orders.filter(o => o.status === 'confirmed' || o.status === 'waiting_for_driver').length;
     if (badge) {
         badge.textContent = pendingCount;
         badge.style.display = pendingCount > 0 ? 'inline-block' : 'none';
@@ -819,12 +832,12 @@ function setupSidebarNavigation() {
         link.addEventListener('click', () => {
             links.forEach(l => l.classList.remove('active'));
             link.classList.add('active');
-            
+
             if (activeDashboardChatInterval) {
                 clearInterval(activeDashboardChatInterval);
                 activeDashboardChatInterval = null;
             }
-            
+
             const targetTab = link.getAttribute('data-tab');
             if (targetTab) {
                 activeTab = targetTab;
@@ -858,7 +871,7 @@ function renderActiveTab() {
         } else if (activeTab === 'categories') {
             const render = () => {
                 container.replaceChildren();
-                try { renderCategoriesTab(container); } catch(e) { console.error('renderCategoriesTab error:', e); }
+                try { renderCategoriesTab(container); } catch (e) { console.error('renderCategoriesTab error:', e); }
             };
             if (categories.length > 0 || categoriesLoaded) {
                 render();
@@ -874,7 +887,7 @@ function renderActiveTab() {
         } else if (activeTab === 'discounts') {
             const render = () => {
                 container.replaceChildren();
-                try { renderDiscountsTab(container); } catch(e) { console.error('renderDiscountsTab error:', e); }
+                try { renderDiscountsTab(container); } catch (e) { console.error('renderDiscountsTab error:', e); }
             };
             if (discounts.length > 0 || discountsLoaded) {
                 render();
@@ -890,7 +903,7 @@ function renderActiveTab() {
         } else if (activeTab === 'offers') {
             const render = () => {
                 container.replaceChildren();
-                try { renderOffersTab(container); } catch(e) { console.error('renderOffersTab error:', e); }
+                try { renderOffersTab(container); } catch (e) { console.error('renderOffersTab error:', e); }
             };
             if (offers.length > 0 || offersLoaded) {
                 render();
@@ -906,7 +919,7 @@ function renderActiveTab() {
         } else if (activeTab === 'profile') {
             const render = () => {
                 container.replaceChildren();
-                try { renderProfileTab(container); } catch(e) { console.error('renderProfileTab error:', e); }
+                try { renderProfileTab(container); } catch (e) { console.error('renderProfileTab error:', e); }
             };
             if (profileLoaded) {
                 render();
@@ -922,7 +935,7 @@ function renderActiveTab() {
         } else if (activeTab === 'branches') {
             const render = () => {
                 container.replaceChildren();
-                try { renderBranchesTab(container); } catch(e) { console.error('renderBranchesTab error:', e); }
+                try { renderBranchesTab(container); } catch (e) { console.error('renderBranchesTab error:', e); }
             };
             if (branches.length > 0 || branchesLoaded) {
                 render();
@@ -1599,9 +1612,9 @@ function showEditProductModal(item) {
    ========================================================================== */
 function renderOrdersTab(parent) {
     // New orders needing accept/decline
-    const newOrders = orders.filter(o => o.status === 'new' || o.status === 'pending_payment');
+    const newOrders = [];
     // Accepted, waiting for captain to confirm
-    const waitingOrders = orders.filter(o => o.status === 'waiting_for_driver');
+    const waitingOrders = orders.filter(o => o.status === 'waiting_for_driver' || o.status === 'new' || o.status === 'pending_payment');
     // Captain confirmed, market can prepare
     const confirmedOrders = orders.filter(o => o.status === 'confirmed' || o.status === 'preparing');
     const completedOrders = orders.filter(o => o.status === 'completed' || o.status === 'ready_for_pickup' || o.status === 'on_the_way');
@@ -1650,11 +1663,11 @@ function renderOrdersTab(parent) {
 function buildOrderCard(container, ord, readonly = false) {
     const isAr = getLanguage() === 'ar';
     let onAccept = null;
-    let acceptText = '✔ تأكيد القبول';
+    let acceptText = isAr ? '✔ تأكيد القبول' : '✔ Accept Order';
 
     if (!readonly) {
         if (ord.status === 'new' || ord.status === 'pending_payment') {
-            acceptText = '✔ تأكيد القبول';
+            acceptText = isAr ? '✔ تأكيد القبول' : '✔ Accept Order';
             onAccept = () => {
                 const paymentMethod = ord.rawOrder ? ord.rawOrder.paymentMethod : 0;
                 const acceptStatus = paymentMethod === 1 ? 'pending_payment' : 'waiting_for_driver';
@@ -1690,32 +1703,32 @@ function renderCategoriesTab(parent) {
 
     // Left side: stats summary chips
     const statsBox = ui.createElement('div', [], { style: 'display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;' });
-    
+
     const catChip = ui.createElement('div', [], { style: 'display: flex; align-items: center; gap: 0.4rem; background: rgba(46, 213, 115, 0.12); border: 1px solid rgba(46, 213, 115, 0.25); border-radius: 20px; padding: 0.35rem 0.85rem; font-size: 0.82rem; font-weight: 700; color: var(--mkt-color, #2ed573);' });
     catChip.textContent = `📂 ${categories.length} ${isAr ? 'قسم رئيسي' : 'Categories'}`;
-    
+
     const prodCount = marketProducts.length;
     const prodChip = ui.createElement('div', [], { style: 'display: flex; align-items: center; gap: 0.4rem; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-color); border-radius: 20px; padding: 0.35rem 0.85rem; font-size: 0.82rem; font-weight: 600; color: var(--text-secondary);' });
     prodChip.textContent = `📦 ${prodCount} ${isAr ? 'منتج موزع' : 'Products'}`;
-    
+
     statsBox.appendChild(catChip);
     statsBox.appendChild(prodChip);
     toolbar.appendChild(statsBox);
 
     // Right side: Search + Add Button
     const actionsBox = ui.createElement('div', [], { style: 'display: flex; align-items: center; gap: 0.75rem; flex: 1; justify-content: flex-end; max-width: 500px;' });
-    
+
     const searchIn = ui.createElement('input', ['search-input'], {
         type: 'text',
         placeholder: isAr ? '🔍 ابحث في الأقسام...' : '🔍 Search categories...',
         style: 'max-width: 260px; font-size: 0.85rem;'
     });
-    
+
     const addCatBtn = ui.createElementWithText('button', isAr ? '➕ إضافة قسم جديد' : '➕ Add Category', ['btn', 'btn-success'], {
         style: 'white-space: nowrap; box-shadow: 0 4px 14px var(--mkt-glow, rgba(46, 213, 115, 0.3)); font-weight: 700;'
     });
     addCatBtn.addEventListener('click', showAddCategoryModal);
-    
+
     actionsBox.appendChild(searchIn);
     actionsBox.appendChild(addCatBtn);
     toolbar.appendChild(actionsBox);
@@ -1822,7 +1835,7 @@ function showAddCategoryModal() {
         style: 'width: 50px; height: 50px; border-radius: var(--radius-sm); border: 1px solid var(--border-color); object-fit: cover; display: none;'
     });
     let uploadedPhotoKey = '';
-    
+
     imgInput.addEventListener('change', async (e) => {
         const file = e.target.files[0];
         if (file) {
@@ -1916,7 +1929,7 @@ function showEditCategoryModal(cat) {
     });
     if (!cat.photo) previewImg.style.display = 'none';
     let uploadedPhotoKey = cat.photo || '';
-    
+
     imgInput.addEventListener('change', async (e) => {
         const file = e.target.files[0];
         if (file) {
@@ -2379,7 +2392,7 @@ function renderOffersTab(parent) {
             // Header row: name + actions (Edit + Delete)
             const headerRow = ui.createElement('div', [], { style: 'display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.4rem;' });
             headerRow.appendChild(ui.createElementWithText('strong', offer.name || '-', [], { style: 'font-size: 1.05rem; font-weight: 700; color: var(--text-primary); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;' }));
-            
+
             const btnGroup = ui.createElement('div', [], { style: 'display: flex; gap: 0.35rem; flex-shrink: 0;' });
             const editBtn = ui.createElementWithText('button', '✏️', ['btn', 'btn-secondary', 'btn-sm'], { style: 'padding: 0.25rem 0.5rem; font-size: 0.85rem; border-radius: 4px;' });
             editBtn.addEventListener('click', () => showEditOfferModal(offer));
@@ -2833,7 +2846,7 @@ function renderProfileTab(parent) {
     // 1. Busy Status Toggle ("زرار المشغول")
     const isBusyNow = !!(user.busy === true || user.busy === 1);
     const busyBox = ui.createElement('div', [], { style: 'padding: 1.1rem 1.25rem; background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 8px; display: flex; flex-direction: column; justify-content: space-between; gap: 0.75rem;' });
-    
+
     const busyHeader = ui.createElement('div', []);
     busyHeader.appendChild(ui.createElementWithText('strong', isAr ? '🔥 حالة الانشغال (زرار المشغول)' : '🔥 Busy Status Toggle', [], { style: 'display: block; font-size: 0.95rem; color: #d97706; margin-bottom: 0.25rem;' }));
     busyHeader.appendChild(ui.createElementWithText('span', isAr ? 'تفعيل وضع "مشغول" ينبه العملاء في تطبيق الهاتف بوجود ضغط طلبات.' : 'Marking as busy informs app customers of high order volume.', ['text-secondary'], { style: 'font-size: 0.8rem;' }));
@@ -2875,9 +2888,9 @@ function renderProfileTab(parent) {
 
     // ── SECTION 2: Official Working Hours Schedule (جدول مواعيد العمل والدوام) ──
     const schedPanel = ui.createElement('div', ['glass-panel'], { style: 'padding: 1.5rem;' });
-    
+
     const schedHeader = ui.createElement('div', [], { style: 'display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.25rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border-color);' });
-    
+
     const schedTitleBox = ui.createElement('div', []);
     schedTitleBox.appendChild(ui.createElementWithText('h3', isAr ? '🕒 مواعيد وأوقات العمل الرسمية' : '🕒 Official Working Hours Schedule', [], { style: 'margin: 0 0 0.25rem 0; font-size: 1.1rem; font-weight: 700;' }));
     schedTitleBox.appendChild(ui.createElementWithText('p', isAr ? 'تحديد ساعات العمل الرسمية وأيام الدوام الأسبوعية للمتجر' : 'Define official operating hours and weekly working days', ['text-secondary'], { style: 'margin: 0; font-size: 0.82rem;' }));
@@ -2899,7 +2912,7 @@ function renderProfileTab(parent) {
             emptyCard.appendChild(ui.createElementWithText('div', '🕒', [], { style: 'font-size: 2.5rem;' }));
             emptyCard.appendChild(ui.createElementWithText('h4', t('sched_empty_title'), [], { style: 'margin: 0; font-size: 1.05rem; font-weight: 700;' }));
             emptyCard.appendChild(ui.createElementWithText('p', t('sched_empty_sub'), ['text-secondary'], { style: 'margin: 0; max-width: 400px; font-size: 0.82rem;' }));
-            
+
             const createBtn = ui.createElementWithText('button', t('sched_add_btn'), ['btn', 'btn-primary'], { style: 'margin-top: 0.25rem;' });
             createBtn.addEventListener('click', () => showScheduleModal(null, () => renderProfileTab(parent)));
             emptyCard.appendChild(createBtn);
@@ -2912,14 +2925,14 @@ function renderProfileTab(parent) {
             const card = ui.createElement('div', [], { style: 'padding: 1.1rem; background: rgba(255,255,255,0.04); border: 1px solid var(--border-color); border-radius: 8px; display: flex; flex-direction: column; gap: 0.85rem; position: relative; border-top: 4px solid ' + (item.type === 1 ? '#2ed573' : '#ff4757') + ';' });
 
             const cardHeader = ui.createElement('div', [], { style: 'display: flex; align-items: center; justify-content: space-between;' });
-            
+
             const badgeType = item.type === 1
                 ? ui.createElementWithText('span', t('sched_type_working'), [], { style: 'background: rgba(46, 213, 115, 0.15); color: #2ed573; padding: 0.2rem 0.55rem; border-radius: 20px; font-size: 0.75rem; font-weight: 700;' })
                 : ui.createElementWithText('span', t('sched_type_closed'), [], { style: 'background: rgba(255, 71, 87, 0.15); color: #ff4757; padding: 0.2rem 0.55rem; border-radius: 20px; font-size: 0.75rem; font-weight: 700;' });
             cardHeader.appendChild(badgeType);
 
             const actionsBox = ui.createElement('div', [], { style: 'display: flex; gap: 0.4rem;' });
-            
+
             const editBtn = ui.createElementWithText('button', '✏️', ['btn', 'btn-secondary', 'btn-sm'], { title: t('sched_edit_title'), style: 'padding: 0.25rem 0.5rem;' });
             editBtn.addEventListener('click', () => showScheduleModal(item, () => renderProfileTab(parent)));
             actionsBox.appendChild(editBtn);
@@ -3191,11 +3204,11 @@ function renderBranchesTab(parent) {
             const card = ui.createElement('div', ['summary-card'], { style: 'display: flex; flex-direction: column; justify-content: space-between; min-height: 180px; position: relative; overflow: hidden;' });
 
             const content = ui.createElement('div');
-            
+
             // Branch Name
             const nameRow = ui.createElement('div', [], { style: 'display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;' });
             nameRow.appendChild(ui.createElementWithText('strong', b.name || (getLanguage() === 'ar' ? 'فرع بدون اسم' : 'Unnamed Branch'), [], { style: 'font-size: 1.1rem;' }));
-            
+
             if (b.base) {
                 nameRow.appendChild(ui.createElementWithText('span', getLanguage() === 'ar' ? 'الرئيسي' : 'Base', ['badge', 'badge-success']));
             }
@@ -3211,10 +3224,10 @@ function renderBranchesTab(parent) {
 
             // Action Buttons
             const actions = ui.createElement('div', [], { style: 'display: flex; gap: 0.5rem; border-top: 1px solid var(--border-color); padding-top: 0.75rem; margin-top: auto;' });
-            
+
             const editBtn = ui.createElementWithText('button', t('rest_menu_btn_edit'), ['btn', 'btn-secondary', 'btn-sm']);
             editBtn.addEventListener('click', () => showEditBranchModal(b));
-            
+
             const deleteBtn = ui.createElementWithText('button', getLanguage() === 'ar' ? 'حذف' : 'Delete', ['btn', 'btn-danger', 'btn-sm']);
             deleteBtn.addEventListener('click', () => handleDeleteBranch(b));
 
@@ -3585,10 +3598,10 @@ function showEditBranchModal(b) {
 }
 
 function handleDeleteBranch(b) {
-    const confirmMsg = getLanguage() === 'ar' 
+    const confirmMsg = getLanguage() === 'ar'
         ? `هل أنت متأكد من حذف الفرع "${b.name}"؟`
         : `Are you sure you want to delete branch "${b.name}"?`;
-        
+
     const body = ui.createElementWithText('p', confirmMsg);
     ui.showModal(
         getLanguage() === 'ar' ? 'تأكيد الحذف' : 'Confirm Delete',
@@ -3627,7 +3640,7 @@ function handleDeleteBranch(b) {
 
 function showMarketChatSelection(order) {
     const body = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.75rem;' });
-    
+
     const custBtn = ui.createElementWithText('button', getLanguage() === 'ar' ? `💬 دردشة مع العميل (${order.customerName})` : `💬 Chat with Customer (${order.customerName})`, ['btn', 'btn-primary', 'btn-block']);
     custBtn.addEventListener('click', () => {
         ui.closeModal();
@@ -3702,7 +3715,7 @@ async function renderChatsTab(parent) {
 
         const userJson = localStorage.getItem('qs_vendor_user');
         let myId = 0;
-        try { if (userJson) myId = JSON.parse(userJson).id; } catch(e){}
+        try { if (userJson) myId = JSON.parse(userJson).id; } catch (e) { }
 
         let activeItem = null;
         chatsList.forEach(chat => {
@@ -3796,7 +3809,7 @@ function renderChatRoom(container, recipientId, recipientName) {
 
     const userJson = localStorage.getItem('qs_vendor_user');
     let myId = 0;
-    try { if (userJson) myId = JSON.parse(userJson).id; } catch(e){}
+    try { if (userJson) myId = JSON.parse(userJson).id; } catch (e) { }
 
     const appendMessages = (messages) => {
         messagesContainer.replaceChildren();
@@ -3833,12 +3846,12 @@ function renderChatRoom(container, recipientId, recipientName) {
                 })
             });
             const list = data && data.result ? data.result : [];
-            list.sort((a,b) => (a.id || 0) - (b.id || 0));
+            list.sort((a, b) => (a.id || 0) - (b.id || 0));
             if (list.length !== lastMessageCount) {
                 lastMessageCount = list.length;
                 appendMessages(list);
             }
-        } catch(e) {
+        } catch (e) {
             console.error('Failed to load chat messages:', e);
         }
     };
@@ -3862,7 +3875,7 @@ function renderChatRoom(container, recipientId, recipientName) {
                 body: JSON.stringify({ recipientId, content: text, messageType: 0 })
             });
             await loadMessages();
-        } catch(e) {
+        } catch (e) {
             console.error('Failed to send message:', e);
         }
     };
@@ -3881,21 +3894,21 @@ async function openDashboardChat(recipientId, recipientName) {
     }
 
     const modalBody = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; height: 400px; justify-content: space-between;' });
-    
-    const messagesContainer = ui.createElement('div', [], { 
-        id: 'chat-messages-container', 
-        style: 'flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: #f8f9fa; margin-bottom: 12px;' 
+
+    const messagesContainer = ui.createElement('div', [], {
+        id: 'chat-messages-container',
+        style: 'flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: #f8f9fa; margin-bottom: 12px;'
     });
     modalBody.appendChild(messagesContainer);
 
     const inputRow = ui.createElement('div', [], { style: 'display: flex; gap: 8px; align-items: center;' });
-    const textIn = ui.createElement('input', ['search-input'], { 
-        type: 'text', 
+    const textIn = ui.createElement('input', ['search-input'], {
+        type: 'text',
         placeholder: getLanguage() === 'ar' ? 'اكتب رسالة...' : 'Type a message...',
         style: 'flex: 1; margin: 0;'
     });
     const sendBtn = ui.createElementWithText('button', getLanguage() === 'ar' ? 'إرسال' : 'Send', ['btn', 'btn-primary']);
-    
+
     inputRow.appendChild(textIn);
     inputRow.appendChild(sendBtn);
     modalBody.appendChild(inputRow);
@@ -3904,7 +3917,7 @@ async function openDashboardChat(recipientId, recipientName) {
     let myId = 0;
     try {
         if (userJson) myId = JSON.parse(userJson).id;
-    } catch(e){}
+    } catch (e) { }
 
     const appendMessages = (messages) => {
         messagesContainer.replaceChildren();
@@ -3916,11 +3929,10 @@ async function openDashboardChat(recipientId, recipientName) {
             const isMe = msg.creatorId === myId;
             const bubbleWrapper = ui.createElement('div', [], { style: `display: flex; justify-content: ${isMe ? 'flex-end' : 'flex-start'}; width: 100%;` });
             const bubble = ui.createElementWithText('div', msg.content || '', [], {
-                style: `padding: 8px 12px; border-radius: 12px; max-width: 75%; font-size: 0.85rem; word-break: break-word; ${
-                    isMe 
-                    ? 'background: var(--mkt-color); color: white; border-bottom-right-radius: 2px;' 
-                    : 'background: #e9ecef; color: var(--color-text-primary); border-bottom-left-radius: 2px;'
-                }`
+                style: `padding: 8px 12px; border-radius: 12px; max-width: 75%; font-size: 0.85rem; word-break: break-word; ${isMe
+                        ? 'background: var(--mkt-color); color: white; border-bottom-right-radius: 2px;'
+                        : 'background: #e9ecef; color: var(--color-text-primary); border-bottom-left-radius: 2px;'
+                    }`
             });
             bubbleWrapper.appendChild(bubble);
             messagesContainer.appendChild(bubbleWrapper);
@@ -3941,12 +3953,12 @@ async function openDashboardChat(recipientId, recipientName) {
                 })
             });
             const list = data && data.result ? data.result : [];
-            list.sort((a,b) => (a.id || 0) - (b.id || 0));
+            list.sort((a, b) => (a.id || 0) - (b.id || 0));
             if (list.length !== lastMessageCount) {
                 lastMessageCount = list.length;
                 appendMessages(list);
             }
-        } catch(e) {
+        } catch (e) {
             console.error('Failed to load chat messages:', e);
         }
     };
@@ -3974,7 +3986,7 @@ async function openDashboardChat(recipientId, recipientName) {
                 })
             });
             await loadMessages();
-        } catch(e) {
+        } catch (e) {
             console.error('Failed to send message:', e);
         }
     };
@@ -4026,7 +4038,7 @@ function normalizeSchedule(raw) {
             if (Array.isArray(parsed)) {
                 days = parsed.map(d => Number(d)).filter(d => !isNaN(d) && d >= 0 && d <= 6);
             }
-        } catch (_) {}
+        } catch (_) { }
     }
 
     days = Array.from(new Set(days)).sort((a, b) => a - b);
@@ -4050,7 +4062,7 @@ async function refreshSchedules() {
                 const u = JSON.parse(userJson);
                 creatorId = u.id != null ? Number(u.id) : null;
             }
-        } catch (_) {}
+        } catch (_) { }
 
         const bodyObj = { pageNumber: 1, pageSize: 100, enablePagination: false };
         if (creatorId) {
@@ -4061,7 +4073,7 @@ async function refreshSchedules() {
             method: 'PATCH',
             body: JSON.stringify(bodyObj)
         });
-        
+
         let list = [];
         if (res) {
             if (Array.isArray(res)) {
@@ -4132,7 +4144,7 @@ function renderScheduleTab(parent) {
 
     // Top Controls Bar
     const topBar = ui.createElement('div', ['glass-panel'], { style: 'display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; padding: 1.25rem 1.5rem;' });
-    
+
     const titleBlock = ui.createElement('div', []);
     titleBlock.appendChild(ui.createElementWithText('h3', t('mkt_section_schedule_title'), [], { style: 'margin: 0 0 0.25rem 0; font-size: 1.2rem; color: var(--color-text-main); font-weight: 700;' }));
     titleBlock.appendChild(ui.createElementWithText('p', t('mkt_section_schedule_sub'), ['text-secondary'], { style: 'margin: 0; font-size: 0.85rem;' }));
@@ -4155,7 +4167,7 @@ function renderScheduleTab(parent) {
             emptyCard.appendChild(ui.createElementWithText('div', '🕒', [], { style: 'font-size: 3rem; margin-bottom: 0.5rem;' }));
             emptyCard.appendChild(ui.createElementWithText('h4', t('sched_empty_title'), [], { style: 'margin: 0; font-size: 1.15rem; font-weight: 700;' }));
             emptyCard.appendChild(ui.createElementWithText('p', t('sched_empty_sub'), ['text-secondary'], { style: 'margin: 0; max-width: 420px; font-size: 0.88rem;' }));
-            
+
             const createBtn = ui.createElementWithText('button', t('sched_add_btn'), ['btn', 'btn-primary'], { style: 'margin-top: 0.5rem;' });
             createBtn.addEventListener('click', () => showScheduleModal(null, () => renderScheduleTab(parent)));
             emptyCard.appendChild(createBtn);
@@ -4169,14 +4181,14 @@ function renderScheduleTab(parent) {
 
             // Card Header (Badge + Actions)
             const cardHeader = ui.createElement('div', [], { style: 'display: flex; align-items: center; justify-content: space-between;' });
-            
+
             const badgeType = item.type === 1
                 ? ui.createElementWithText('span', t('sched_type_working'), [], { style: 'background: rgba(46, 213, 115, 0.15); color: #2ed573; padding: 0.25rem 0.65rem; border-radius: 20px; font-size: 0.78rem; font-weight: 700;' })
                 : ui.createElementWithText('span', t('sched_type_closed'), [], { style: 'background: rgba(255, 71, 87, 0.15); color: #ff4757; padding: 0.25rem 0.65rem; border-radius: 20px; font-size: 0.78rem; font-weight: 700;' });
             cardHeader.appendChild(badgeType);
 
             const actionsBox = ui.createElement('div', [], { style: 'display: flex; gap: 0.5rem;' });
-            
+
             const editBtn = ui.createElementWithText('button', '✏️', ['btn', 'btn-secondary', 'btn-sm'], { title: t('sched_edit_title'), style: 'padding: 0.35rem 0.6rem;' });
             editBtn.addEventListener('click', () => showScheduleModal(item, () => renderScheduleTab(parent)));
             actionsBox.appendChild(editBtn);
@@ -4213,7 +4225,7 @@ function renderScheduleTab(parent) {
             daysWrapper.appendChild(ui.createElementWithText('span', t('sched_days_label') + ':', ['text-secondary'], { style: 'font-size: 0.8rem;' }));
 
             const daysContainer = ui.createElement('div', [], { style: 'display: flex; flex-wrap: wrap; gap: 0.35rem;' });
-            
+
             const activeDays = Array.isArray(item.daysOfWeek) ? item.daysOfWeek : [];
             const orderedDays = [6, 0, 1, 2, 3, 4, 5];
             const filteredActiveDays = orderedDays.filter(d => activeDays.includes(d));
@@ -4262,7 +4274,7 @@ function showScheduleModal(existingItem = null, onSuccessCallback = null) {
 
     // Helpful Tip Banner
     const tipBox = ui.createElement('div', [], { style: 'padding: 0.75rem 1rem; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 8px; font-size: 0.8rem; color: var(--color-text-secondary, #94a3b8); line-height: 1.4;' });
-    tipBox.textContent = isAr 
+    tipBox.textContent = isAr
         ? '💡 ملحوظة: يمكنك تحديد الأيام التي تشترك في نفس ساعات العمل في ريكورد واحد. وإذا كانت هناك أيام أخرى بمواعيد مختلفة (مثل الجمعة)، قم بإضافتها في ريكورد جديد منفصل.'
         : '💡 Note: Select all days sharing identical working hours in a single record. For days with different operating hours, save them as separate schedule records.';
     modalContent.appendChild(tipBox);
@@ -4270,7 +4282,7 @@ function showScheduleModal(existingItem = null, onSuccessCallback = null) {
     // 1. Schedule Type
     const typeGroup = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.4rem;' });
     typeGroup.appendChild(ui.createElementWithText('label', t('sched_type_label'), [], { style: 'font-size: 0.85rem; font-weight: 600;' }));
-    
+
     const typeSelect = ui.createElement('select', ['select-input']);
     const optWorking = ui.createElementWithText('option', t('sched_type_working'), [], { value: '1' });
     const optClosed = ui.createElementWithText('option', t('sched_type_closed'), [], { value: '2' });
@@ -4286,12 +4298,12 @@ function showScheduleModal(existingItem = null, onSuccessCallback = null) {
         : [6, 0, 1, 2, 3, 4, 5];
 
     const daysGroup = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.5rem;' });
-    
+
     const daysHeader = ui.createElement('div', [], { style: 'display: flex; align-items: center; justify-content: space-between;' });
     daysHeader.appendChild(ui.createElementWithText('label', t('sched_days_label'), [], { style: 'font-size: 0.85rem; font-weight: 600;' }));
-    
+
     const quickActions = ui.createElement('div', [], { style: 'display: flex; gap: 0.4rem;' });
-    
+
     const btnAll = ui.createElementWithText('button', t('sched_select_all'), ['btn', 'btn-link', 'btn-xs'], { type: 'button', style: 'font-size: 0.75rem; text-decoration: underline;' });
     btnAll.addEventListener('click', () => {
         selectedDays = [6, 0, 1, 2, 3, 4, 5];
@@ -4310,7 +4322,7 @@ function showScheduleModal(existingItem = null, onSuccessCallback = null) {
     daysGroup.appendChild(daysHeader);
 
     const daysPillsContainer = ui.createElement('div', [], { style: 'display: flex; flex-wrap: wrap; gap: 0.4rem;' });
-    
+
     const orderedDays = [6, 0, 1, 2, 3, 4, 5];
     const updateDaysUI = () => {
         daysPillsContainer.replaceChildren();
@@ -4372,7 +4384,7 @@ function showScheduleModal(existingItem = null, onSuccessCallback = null) {
 
     // 4. Action Buttons
     const actionsRow = ui.createElement('div', [], { style: 'display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 0.5rem;' });
-    
+
     const cancelBtn = ui.createElementWithText('button', isAr ? 'إلغاء' : 'Cancel', ['btn', 'btn-secondary']);
     cancelBtn.addEventListener('click', () => ui.closeModal());
     actionsRow.appendChild(cancelBtn);

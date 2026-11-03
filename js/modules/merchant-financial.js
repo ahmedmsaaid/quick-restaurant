@@ -8,7 +8,7 @@
  * - Proper error, loading, and empty states
  */
 
-import * as ui from '../ui-utils.js?v=27';
+import * as ui from '../ui-utils.js?v=42.0';
 import { t, getLanguage } from '../translations.js?v=27';
 
 let currentFilterType = 2; // Default: ThisMonth (2)
@@ -410,7 +410,7 @@ export async function renderMerchantOverview(container, apiClient) {
                 tr.appendChild(tdStatus);
 
                 const tdDate = document.createElement('td');
-                tdDate.textContent = formatDate(ord.createdAt || ord.createdDate);
+                tdDate.textContent = formatDate(ord.createdAt || ord.createdOn || ord.createdDate);
                 tr.appendChild(tdDate);
 
                 tbody.appendChild(tr);
@@ -812,7 +812,7 @@ export async function renderMerchantWallet(container, apiClient, pageNumber = 1)
             tr.appendChild(tdDesc);
 
             const tdDate = document.createElement('td');
-            tdDate.textContent = formatDate(tx.createdAt);
+            tdDate.textContent = formatDate(tx.createdAt || tx.createdOn);
             tr.appendChild(tdDate);
 
             tbody.appendChild(tr);

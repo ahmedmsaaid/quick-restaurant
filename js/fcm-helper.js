@@ -4,7 +4,7 @@
  * interactive permission request banners, and real-time push notification handling.
  */
 
-import * as ui from './ui-utils.js';
+import * as ui from './ui-utils.js?v=42.0';
 import { t } from './translations.js';
 
 const FIREBASE_CONFIG = {
@@ -222,7 +222,7 @@ async function obtainAndSyncToken(apiClient, registration) {
 async function syncFcmTokenWithBackend(apiClient, token) {
     try {
         const lastSyncedToken = localStorage.getItem('qs_synced_fcm_token');
-        if (lastSyncedToken === token) {
+        if (false && lastSyncedToken === token) {
             console.log('⚡ [FCM] Token is already synced with backend server.');
             return;
         }
