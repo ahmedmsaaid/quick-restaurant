@@ -1356,12 +1356,14 @@ export function initMobileSidebar() {
                 <button class="sidebar-link mobile-action-link" id="mobile-drawer-lang-btn">
                     <span>🌐 <span id="mobile-drawer-lang-text">${langLabel}</span></span>
                 </button>
-                <button class="sidebar-link mobile-action-link" id="mobile-drawer-logout-btn" style="color: var(--color-danger);">
-                    <span>🚪 ${isAr ? 'تسجيل الخروج' : 'Logout'}</span>
-                </button>
             `;
 
-            sidebar.appendChild(actions);
+            const footer = sidebar.querySelector('.sidebar-footer');
+            if (footer) {
+                sidebar.insertBefore(actions, footer);
+            } else {
+                sidebar.appendChild(actions);
+            }
 
             const themeBtn = actions.querySelector('#mobile-drawer-theme-btn');
             if (themeBtn) {
@@ -1381,13 +1383,7 @@ export function initMobileSidebar() {
                 });
             }
 
-            const logoutBtn = actions.querySelector('#mobile-drawer-logout-btn');
-            if (logoutBtn) {
-                logoutBtn.addEventListener('click', () => {
-                    const desktopLogout = document.getElementById('btn-logout');
-                    if (desktopLogout) desktopLogout.click();
-                });
-            }
+
         }
     };
 
