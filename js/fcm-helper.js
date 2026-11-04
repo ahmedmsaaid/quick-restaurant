@@ -4,7 +4,7 @@
  * interactive permission request banners, and real-time push notification handling.
  */
 
-import * as ui from './ui-utils.js?v=42.0';
+import * as ui from './ui-utils.js?v=48.0';
 import { t } from './translations.js';
 
 const FIREBASE_CONFIG = {

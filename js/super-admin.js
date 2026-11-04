@@ -5,7 +5,7 @@
  */
 
 import * as db from './mock-data.js?v=27';
-import * as ui from './ui-utils.js?v=42.0';
+import * as ui from './ui-utils.js?v=48.0';
 import { t, getLanguage, setLanguage, initTranslations, subscribeLangChange } from './translations.js?v=27';
 import { ApiClient, ImageService, Logger } from './core.js?v=27';
 

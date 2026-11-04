@@ -5,7 +5,7 @@
  * Type = 1 (Supermarket)
  */
 
-import * as ui from './ui-utils.js?v=42.0';
+import * as ui from './ui-utils.js?v=48.0';
 import { t, getLanguage, setLanguage, initTranslations, subscribeLangChange } from './translations.js';
 import { ApiClient, ImageService, Logger } from './core.js';
 import { initFCMNotificationService } from './fcm-helper.js';

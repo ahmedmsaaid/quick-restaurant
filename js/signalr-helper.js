@@ -4,7 +4,7 @@
  * authenticated via JWT Bearer token, and handles live incoming events.
  */
 
-import * as ui from './ui-utils.js?v=42.0';
+import * as ui from './ui-utils.js?v=48.0';
 import { getLanguage, t } from './translations.js';
 
 let hubConnection = null;

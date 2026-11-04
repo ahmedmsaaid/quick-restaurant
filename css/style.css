@@ -2706,22 +2706,25 @@ html[dir="rtl"] .category-badge-chip {
 
 /* Sidebar Backdrop for Mobile Drawer */
 .sidebar-backdrop {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(4px);
-    z-index: 99998;
-    opacity: 0;
-    visibility: hidden;
-    transition: opacity 0.3s ease, visibility 0.3s ease;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    background: rgba(0, 0, 0, 0.6) !important;
+    backdrop-filter: blur(4px) !important;
+    -webkit-backdrop-filter: blur(4px) !important;
+    z-index: 100000 !important;
+    opacity: 0 !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+    transition: opacity 0.3s ease, visibility 0.3s ease !important;
 }
 
 .sidebar-backdrop.active {
-    opacity: 1;
-    visibility: visible;
+    opacity: 1 !important;
+    visibility: visible !important;
+    pointer-events: auto !important;
 }
 
 @media screen and (min-width: 993px) {
@@ -2759,7 +2762,7 @@ html[dir="rtl"] .category-badge-chip {
         max-width: 85vw !important;
         height: 100vh !important;
         height: 100dvh !important;
-        z-index: 99999 !important;
+        z-index: 100005 !important;
         background-color: var(--bg-surface) !important;
         box-shadow: -10px 0 35px rgba(0, 0, 0, 0.45) !important;
         transform: translateX(-100%) !important;
@@ -2779,7 +2782,10 @@ html[dir="rtl"] .category-badge-chip {
         box-shadow: 10px 0 35px rgba(0, 0, 0, 0.45) !important;
     }
 
-    .dashboard-sidebar.mobile-open {
+    .dashboard-sidebar.mobile-open,
+    html[dir="rtl"] .dashboard-sidebar.mobile-open,
+    body[dir="rtl"] .dashboard-sidebar.mobile-open,
+    [dir="rtl"] .dashboard-sidebar.mobile-open {
         transform: translateX(0) !important;
     }
 
