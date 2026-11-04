@@ -1,13 +1,14 @@
 /**
  * Merchant Financial & Wallet Module
- * Used by Restaurant and Supermarket Dashboards
+ * Used by Restaurant, Supermarket, and Admin Dashboards
  * Strictly follows Quick-Service Frontend Guidelines:
  * - Zero innerHTML for dynamic data (XSS prevention)
  * - Full i18n support via t()
  * - Responsive tables & cards
+ * - Modern Fintech UI with clean Cairo typography
  */
 
-import * as ui from '../ui-utils.js?v=46.0';
+import * as ui from '../ui-utils.js?v=48.0';
 import { t, getLanguage } from '../translations.js?v=46.0';
 
 /**
@@ -15,7 +16,8 @@ import { t, getLanguage } from '../translations.js?v=46.0';
  */
 function formatCurrency(val) {
     const num = Number(val) || 0;
-    const formatted = num.toLocaleString(getLanguage() === 'ar' ? 'ar-EG' : 'en-US', {
+    const isAr = getLanguage() === 'ar';
+    const formatted = num.toLocaleString(isAr ? 'ar-EG' : 'en-US', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2
     });
@@ -97,7 +99,7 @@ function createKpiCard({ icon, label, value, subtext, accentClass = 'accent-prim
 }
 
 // ============================================================================
-// 1. MERCHANT FINANCIAL OVERVIEW TAB
+// 1. MERCHANT FINANCIAL OVERVIEW TAB (📊 التقارير المالية والإحصائيات)
 // ============================================================================
 
 export async function renderMerchantOverview(container, apiClient, merchantId) {
@@ -124,7 +126,7 @@ export async function renderMerchantOverview(container, apiClient, merchantId) {
 
     const filterLabel = document.createElement('span');
     filterLabel.className = 'filter-label';
-    filterLabel.textContent = t('financial_filter_label');
+    filterLabel.innerHTML = `<span>📅</span> <span>${t('financial_filter_label')}</span>`;
     filterGroup.appendChild(filterLabel);
 
     const filterButtons = [
@@ -142,18 +144,18 @@ export async function renderMerchantOverview(container, apiClient, merchantId) {
 
     const fromInput = document.createElement('input');
     fromInput.type = 'date';
-    fromInput.className = 'form-control date-input';
+    fromInput.className = 'date-input';
 
     const toInput = document.createElement('input');
     toInput.type = 'date';
-    toInput.className = 'form-control date-input';
+    toInput.className = 'date-input';
 
     const applyCustomBtn = document.createElement('button');
     applyCustomBtn.className = 'btn btn-primary btn-sm';
     applyCustomBtn.textContent = t('btn_apply');
     applyCustomBtn.addEventListener('click', () => {
         if (!fromInput.value || !toInput.value) {
-            ui.showToast(t('settlement_Toast_invalid_dates'), 'warning');
+            ui.showToast(t('settlement_Toast_invalid_dates') || 'يرجى تحديد تاريخ البداية والنهاية', 'warning');
             return;
         }
         state.fromDate = new Date(fromInput.value).toISOString();
@@ -167,7 +169,7 @@ export async function renderMerchantOverview(container, apiClient, merchantId) {
 
     filterButtons.forEach(fb => {
         const btn = document.createElement('button');
-        btn.className = `btn btn-filter ${state.filterType === fb.type ? 'active' : ''}`;
+        btn.className = `btn-filter ${state.filterType === fb.type ? 'active' : ''}`;
         btn.textContent = t(fb.key);
         btn.addEventListener('click', () => {
             state.filterType = fb.type;
@@ -187,8 +189,8 @@ export async function renderMerchantOverview(container, apiClient, merchantId) {
     });
 
     const refreshBtn = document.createElement('button');
-    refreshBtn.className = 'btn btn-outline btn-sm ms-auto';
-    refreshBtn.textContent = `🔄 ${t('btn_refresh')}`;
+    refreshBtn.className = 'btn btn-outline btn-sm refresh-btn';
+    refreshBtn.innerHTML = `<span>🔄</span> <span>${t('btn_refresh')}</span>`;
     refreshBtn.addEventListener('click', () => {
         loadDashboardSummary();
         loadDeliveredOrders();
@@ -202,24 +204,31 @@ export async function renderMerchantOverview(container, apiClient, merchantId) {
 
     // --- KPI Cards Grid ---
     const kpiGrid = document.createElement('div');
-    kpiGrid.className = 'stats-grid financial-kpi-grid';
+    kpiGrid.className = 'financial-kpi-grid';
     wrapper.appendChild(kpiGrid);
 
-    // --- Financial Breakdown & Recent Delivered Orders Section ---
+    // --- Delivered Orders Section ---
     const ordersCard = document.createElement('div');
-    ordersCard.className = 'card mt-4';
+    ordersCard.className = 'card financial-table-card mt-4';
 
     const ordersHeader = document.createElement('div');
-    ordersHeader.className = 'card-header d-flex justify-between align-center';
+    ordersHeader.className = 'card-header d-flex justify-between align-center flex-wrap gap-2';
 
     const ordersTitle = document.createElement('h3');
     ordersTitle.className = 'card-title';
-    ordersTitle.textContent = `📦 ${t('recent_orders_title')} (${t('order_status_delivered')})`;
+    ordersTitle.innerHTML = `<span>📦</span> <span>${t('recent_orders_title')} (${t('order_status_delivered')})</span>`;
     ordersHeader.appendChild(ordersTitle);
+
+    const ordersCountBadge = document.createElement('span');
+    ordersCountBadge.className = 'badge badge-info';
+    ordersCountBadge.id = 'delivered-orders-count-badge';
+    ordersCountBadge.textContent = '...';
+    ordersHeader.appendChild(ordersCountBadge);
+
     ordersCard.appendChild(ordersHeader);
 
     const ordersBody = document.createElement('div');
-    ordersBody.className = 'card-body';
+    ordersBody.className = 'card-body p-0';
     ordersCard.appendChild(ordersBody);
 
     wrapper.appendChild(ordersCard);
@@ -230,8 +239,8 @@ export async function renderMerchantOverview(container, apiClient, merchantId) {
         kpiGrid.replaceChildren();
         for (let i = 0; i < 6; i++) {
             const skel = document.createElement('div');
-            skel.className = 'stat-card skeleton-box';
-            skel.style.height = '120px';
+            skel.className = 'stat-card financial-kpi-card skeleton-box';
+            skel.style.minHeight = '130px';
             kpiGrid.appendChild(skel);
         }
 
@@ -274,11 +283,15 @@ export async function renderMerchantOverview(container, apiClient, merchantId) {
                 accentClass: 'accent-orange'
             }));
 
+            // Net Merchant Earnings
+            const grossSales = Number(d.totalRevenue ?? d.totalSalesAmount ?? 0);
+            const appFee = Number(d.quickCommission ?? 0);
+            const netEarnings = Math.max(0, grossSales - appFee);
             kpiGrid.appendChild(createKpiCard({
-                icon: '✅',
-                label: t('merchant_kpi_settled'),
-                value: formatCurrency(d.settledAmount ?? 0),
-                subtext: t('stat_settled_desc'),
+                icon: '💎',
+                label: getLanguage() === 'ar' ? 'صافي أرباح المتجر' : 'Net Store Earnings',
+                value: formatCurrency(netEarnings),
+                subtext: getLanguage() === 'ar' ? 'الأرباح بعد خصم عمولة المنصة' : 'Earnings after platform fees',
                 accentClass: 'accent-teal'
             }));
 
@@ -291,7 +304,7 @@ export async function renderMerchantOverview(container, apiClient, merchantId) {
             }));
 
             kpiGrid.appendChild(createKpiCard({
-                icon: '🏦',
+                icon: '👛',
                 label: t('merchant_kpi_wallet'),
                 value: formatCurrency(d.currentWalletBalance ?? 0),
                 subtext: t('stat_balance_desc'),
@@ -301,7 +314,7 @@ export async function renderMerchantOverview(container, apiClient, merchantId) {
             console.error('Error loading merchant dashboard summary:', err);
             kpiGrid.replaceChildren();
             const errEl = document.createElement('div');
-            errEl.className = 'error-state p-3';
+            errEl.className = 'error-state p-4 text-center';
             errEl.textContent = t('network_error');
             kpiGrid.appendChild(errEl);
         }
@@ -334,6 +347,9 @@ export async function renderMerchantOverview(container, apiClient, merchantId) {
 
             ordersBody.replaceChildren();
             const { items: orders, totalCount, totalPages } = extractPaginatedItems(ordersRes);
+
+            const badgeEl = document.getElementById('delivered-orders-count-badge');
+            if (badgeEl) badgeEl.textContent = `${totalCount} ${getLanguage() === 'ar' ? 'طلب' : 'orders'}`;
 
             if (!orders.length) {
                 const emptyOrders = ui.createEmptyState(t('empty_state_orders'));
@@ -369,9 +385,12 @@ export async function renderMerchantOverview(container, apiClient, merchantId) {
             orders.forEach(order => {
                 const tr = document.createElement('tr');
 
+                // Order ID with Chip
                 const tdId = document.createElement('td');
-                tdId.className = 'fw-bold';
-                tdId.textContent = `#${order.id}`;
+                const chip = document.createElement('span');
+                chip.className = 'order-chip';
+                chip.textContent = `#${order.id}`;
+                tdId.appendChild(chip);
                 tr.appendChild(tdId);
 
                 const totalPriceVal = Number(order.totalPrice || 0);
@@ -381,28 +400,35 @@ export async function renderMerchantOverview(container, apiClient, merchantId) {
                 const commissionVal = Number(order.commission ?? order.quickCommission ?? 0);
                 const netEarningsVal = Number(order.netEarnings ?? (itemsSubtotal - commissionVal));
 
+                // Items Total
                 const tdTotal = document.createElement('td');
+                tdTotal.className = 'fw-bold';
                 tdTotal.textContent = formatCurrency(itemsSubtotal || totalPriceVal);
                 tr.appendChild(tdTotal);
 
+                // Commission
                 const tdComm = document.createElement('td');
-                tdComm.className = 'text-danger';
+                tdComm.className = 'text-danger fw-bold';
                 tdComm.textContent = `- ${formatCurrency(commissionVal)}`;
                 tr.appendChild(tdComm);
 
+                // Net Earnings
                 const tdNet = document.createElement('td');
                 tdNet.className = 'text-success fw-bold';
-                tdNet.textContent = formatCurrency(netEarningsVal);
+                tdNet.textContent = `+ ${formatCurrency(netEarningsVal)}`;
                 tr.appendChild(tdNet);
 
+                // Status Badge
                 const tdStatus = document.createElement('td');
                 const badge = document.createElement('span');
                 badge.className = 'status-badge status-completed';
-                badge.textContent = t('order_status_delivered');
+                badge.innerHTML = `<span>✓</span> <span>${t('order_status_delivered')}</span>`;
                 tdStatus.appendChild(badge);
                 tr.appendChild(tdStatus);
 
+                // Date
                 const tdDate = document.createElement('td');
+                tdDate.className = 'text-muted small';
                 tdDate.textContent = formatDate(order.createdOn || order.createdDate || order.createdAt);
                 tr.appendChild(tdDate);
 
@@ -434,7 +460,7 @@ export async function renderMerchantOverview(container, apiClient, merchantId) {
 }
 
 // ============================================================================
-// 2. MERCHANT SETTLEMENTS HISTORY TAB
+// 2. MERCHANT SETTLEMENTS HISTORY TAB (💰 سجل التسويات والمستحقات)
 // ============================================================================
 
 export async function renderMerchantSettlements(container, apiClient) {
@@ -447,28 +473,76 @@ export async function renderMerchantSettlements(container, apiClient) {
         statusFilter: ''
     };
 
+    const wrapper = document.createElement('div');
+    wrapper.id = 'section-settlements';
+    wrapper.className = 'settlements-section-wrapper';
+
+    // --- Info Hint Banner ---
+    const isAr = getLanguage() === 'ar';
+    const hintBanner = document.createElement('div');
+    hintBanner.className = 'settlement-info-banner';
+    hintBanner.innerHTML = `
+        <div class="banner-icon">ℹ️</div>
+        <div class="banner-text">
+            <strong>${isAr ? 'سياسة تسوية المستحقات المالية:' : 'Financial Settlement Policy:'}</strong>
+            <span>${isAr ? 'يتم تحويل المستحقات المعتمدة دورياً لحسابك البنكي أو محفظتك الإلكترونية المسجلة، بعد تدقيق وتأكيد تسليم الطلبات.' : 'Approved payouts are transferred periodically to your registered bank account or e-wallet after orders are delivered and verified.'}</span>
+        </div>
+    `;
+    wrapper.appendChild(hintBanner);
+
+    // --- Settlements Summary KPI Cards ---
+    const summaryGrid = document.createElement('div');
+    summaryGrid.className = 'financial-kpi-grid mb-4';
+
+    const cardSettled = createKpiCard({
+        icon: '✅',
+        label: isAr ? 'إجمالي المبالغ المصروفة' : 'Total Paid Out',
+        value: '...',
+        subtext: isAr ? 'تسويات مكتملة ومحولة بنجاح' : 'Completed and transferred settlements',
+        accentClass: 'accent-green'
+    });
+    const cardPending = createKpiCard({
+        icon: '⏳',
+        label: isAr ? 'تسويات قيد المراجعة' : 'Pending Settlements',
+        value: '...',
+        subtext: isAr ? 'مستحقات قيد المعالجة الإدارية' : 'Under admin review and processing',
+        accentClass: 'accent-orange'
+    });
+    const cardCycle = createKpiCard({
+        icon: '🏦',
+        label: isAr ? 'دورية الصرف والتسوية' : 'Payout Schedule',
+        value: isAr ? 'أسبوعي / شهري' : 'Weekly / Monthly',
+        subtext: isAr ? 'تلقائي وفقاً لاتفاقية المتجر' : 'Automatic via store agreement',
+        accentClass: 'accent-teal'
+    });
+
+    summaryGrid.appendChild(cardSettled);
+    summaryGrid.appendChild(cardPending);
+    summaryGrid.appendChild(cardCycle);
+    wrapper.appendChild(summaryGrid);
+
+    // --- Settlements Card Table ---
     const card = document.createElement('div');
-    card.id = 'section-settlements';
-    card.className = 'card';
+    card.className = 'card financial-table-card';
 
     const header = document.createElement('div');
     header.className = 'card-header d-flex justify-between align-center flex-wrap gap-2';
 
     const title = document.createElement('h3');
     title.className = 'card-title';
-    title.textContent = `📑 ${t('merchant_section_settlements_title')}`;
+    title.innerHTML = `<span>📑</span> <span>${t('merchant_section_settlements_title')}</span>`;
 
     const controls = document.createElement('div');
-    controls.className = 'd-flex align-center gap-2';
+    controls.className = 'd-flex align-center gap-2 flex-wrap';
 
     const statusSelect = document.createElement('select');
     statusSelect.className = 'form-control form-select-sm';
 
     const statusOptions = [
-        { val: '', label: t('filter_all_status') },
-        { val: '0', label: t('settlement_status_pending') },
-        { val: '1', label: t('settlement_status_completed') },
-        { val: '2', label: t('settlement_status_rejected') }
+        { val: '', label: t('filter_all_status') || 'جميع الحالات' },
+        { val: '0', label: `⏳ ${t('settlement_status_pending') || 'قيد الانتظار'}` },
+        { val: '1', label: `✅ ${t('settlement_status_completed') || 'مكتملة ومحولة'}` },
+        { val: '2', label: `❌ ${t('settlement_status_rejected') || 'مرفوضة'}` }
     ];
     statusOptions.forEach(opt => {
         const option = document.createElement('option');
@@ -485,7 +559,7 @@ export async function renderMerchantSettlements(container, apiClient) {
 
     const refreshBtn = document.createElement('button');
     refreshBtn.className = 'btn btn-outline btn-sm';
-    refreshBtn.textContent = `🔄 ${t('btn_refresh')}`;
+    refreshBtn.innerHTML = `<span>🔄</span> <span>${t('btn_refresh')}</span>`;
     refreshBtn.addEventListener('click', () => loadSettlements());
 
     controls.appendChild(statusSelect);
@@ -496,9 +570,10 @@ export async function renderMerchantSettlements(container, apiClient) {
     card.appendChild(header);
 
     const body = document.createElement('div');
-    body.className = 'card-body';
+    body.className = 'card-body p-0';
     card.appendChild(body);
-    container.appendChild(card);
+    wrapper.appendChild(card);
+    container.appendChild(wrapper);
 
     async function loadSettlements() {
         body.replaceChildren();
@@ -523,8 +598,22 @@ export async function renderMerchantSettlements(container, apiClient) {
             body.replaceChildren();
             const { items, totalCount, totalPages } = extractPaginatedItems(res);
 
+            // Update KPI summary numbers
+            let completedSum = 0;
+            let pendingCount = 0;
+            items.forEach(it => {
+                const st = Number(it.status);
+                const amt = Number(it.amount || 0);
+                if (st === 1) completedSum += amt;
+                if (st === 0) pendingCount++;
+            });
+            const settledValEl = cardSettled.querySelector('.stat-value');
+            if (settledValEl) settledValEl.textContent = formatCurrency(completedSum);
+            const pendingValEl = cardPending.querySelector('.stat-value');
+            if (pendingValEl) pendingValEl.textContent = `${pendingCount} ${isAr ? 'حوالة' : 'payouts'}`;
+
             if (!items.length) {
-                const empty = ui.createEmptyState(t('empty_state_settlements'));
+                const empty = ui.createEmptyState(t('empty_state_settlements') || 'لا توجد سجلات تسويات حالياً', '💰');
                 body.appendChild(empty);
                 return;
             }
@@ -556,41 +645,51 @@ export async function renderMerchantSettlements(container, apiClient) {
             items.forEach(item => {
                 const tr = document.createElement('tr');
 
+                // Settlement ID
                 const tdId = document.createElement('td');
-                tdId.className = 'fw-bold';
-                tdId.textContent = `#${item.id}`;
+                const chip = document.createElement('span');
+                chip.className = 'order-chip';
+                chip.textContent = `#${item.id}`;
+                tdId.appendChild(chip);
                 tr.appendChild(tdId);
 
+                // Amount
                 const tdAmount = document.createElement('td');
-                tdAmount.className = 'fw-bold text-primary';
+                tdAmount.className = 'fw-bold text-success';
                 tdAmount.textContent = formatCurrency(item.amount);
                 tr.appendChild(tdAmount);
 
+                // Status Badge
                 const tdStatus = document.createElement('td');
                 const badge = document.createElement('span');
                 const st = Number(item.status);
                 if (st === 1) {
                     badge.className = 'status-badge status-completed';
-                    badge.textContent = t('settlement_status_completed');
+                    badge.innerHTML = `<span>✓</span> <span>${t('settlement_status_completed')}</span>`;
                 } else if (st === 2) {
                     badge.className = 'status-badge status-rejected';
-                    badge.textContent = t('settlement_status_rejected');
+                    badge.innerHTML = `<span>✕</span> <span>${t('settlement_status_rejected')}</span>`;
                 } else {
                     badge.className = 'status-badge status-pending';
-                    badge.textContent = t('settlement_status_pending');
+                    badge.innerHTML = `<span>⏳</span> <span>${t('settlement_status_pending')}</span>`;
                 }
                 tdStatus.appendChild(badge);
                 tr.appendChild(tdStatus);
 
+                // Notes
                 const tdNotes = document.createElement('td');
+                tdNotes.className = 'text-muted';
                 tdNotes.textContent = item.notes || item.note || '-';
                 tr.appendChild(tdNotes);
 
+                // Dates
                 const tdCreated = document.createElement('td');
+                tdCreated.className = 'small text-muted';
                 tdCreated.textContent = formatDate(item.createdOn || item.createdDate || item.createdAt);
                 tr.appendChild(tdCreated);
 
                 const tdProcessed = document.createElement('td');
+                tdProcessed.className = 'small text-muted';
                 tdProcessed.textContent = formatDate(item.settledOn || item.processedDate || item.updatedOn);
                 tr.appendChild(tdProcessed);
 
@@ -623,7 +722,7 @@ export async function renderMerchantSettlements(container, apiClient) {
 }
 
 // ============================================================================
-// 3. MERCHANT WALLET & TRANSACTIONS TAB
+// 3. MERCHANT WALLET & TRANSACTIONS TAB (👛 المحفظة الرقمية)
 // ============================================================================
 
 export async function renderMerchantWallet(container, apiClient) {
@@ -636,65 +735,92 @@ export async function renderMerchantWallet(container, apiClient) {
         txTypeFilter: ''
     };
 
+    const isAr = getLanguage() === 'ar';
     const wrapper = document.createElement('div');
     wrapper.id = 'section-wallet';
     wrapper.className = 'wallet-section-wrapper';
 
-    // --- Wallet Balance Banner ---
+    // --- Premium Fintech Hero Banner ---
     const banner = document.createElement('div');
-    banner.className = 'card wallet-balance-banner mb-4';
+    banner.className = 'card wallet-balance-banner';
 
     const bannerContent = document.createElement('div');
-    bannerContent.className = 'd-flex justify-between align-center flex-wrap gap-3 p-4';
+    bannerContent.className = 'wallet-hero-content';
 
     const leftCol = document.createElement('div');
-    const walletLabel = document.createElement('div');
-    walletLabel.className = 'text-muted mb-1';
-    walletLabel.textContent = t('merchant_kpi_wallet');
+    leftCol.className = 'wallet-hero-left';
+
+    const titleRow = document.createElement('div');
+    titleRow.className = 'wallet-hero-title-row';
+
+    const chipIcon = document.createElement('span');
+    chipIcon.className = 'wallet-chip-icon';
+    chipIcon.textContent = '💳';
+
+    const walletLabel = document.createElement('span');
+    walletLabel.className = 'wallet-hero-label';
+    walletLabel.textContent = isAr ? 'المحفظة الرقمية الذكية' : 'Digital Smart Wallet';
+
+    const activeBadge = document.createElement('span');
+    activeBadge.className = 'wallet-badge-active';
+    activeBadge.textContent = isAr ? '🟢 المحفظة نشطة' : '🟢 Active';
+
+    titleRow.appendChild(chipIcon);
+    titleRow.appendChild(walletLabel);
+    titleRow.appendChild(activeBadge);
+
+    const subLabel = document.createElement('div');
+    subLabel.className = 'wallet-sub-label';
+    subLabel.textContent = isAr ? 'الرصيد المتاح للسحب حالياً:' : 'Current Available Balance:';
 
     const walletValue = document.createElement('div');
     walletValue.className = 'wallet-hero-amount';
     walletValue.textContent = '...';
 
     const walletUpdated = document.createElement('div');
-    walletUpdated.className = 'text-muted small mt-1';
+    walletUpdated.className = 'wallet-hero-timestamp';
 
-    leftCol.appendChild(walletLabel);
+    leftCol.appendChild(titleRow);
+    leftCol.appendChild(subLabel);
     leftCol.appendChild(walletValue);
     leftCol.appendChild(walletUpdated);
 
+    const actionsCol = document.createElement('div');
+    actionsCol.className = 'wallet-hero-actions';
+
     const refreshAllBtn = document.createElement('button');
     refreshAllBtn.className = 'btn btn-primary';
-    refreshAllBtn.textContent = `🔄 ${t('btn_refresh')}`;
+    refreshAllBtn.innerHTML = `<span>🔄</span> <span>${t('btn_refresh')}</span>`;
     refreshAllBtn.addEventListener('click', () => {
         loadWalletBalance();
         loadTransactions();
     });
 
+    actionsCol.appendChild(refreshAllBtn);
     bannerContent.appendChild(leftCol);
-    bannerContent.appendChild(refreshAllBtn);
+    bannerContent.appendChild(actionsCol);
     banner.appendChild(bannerContent);
     wrapper.appendChild(banner);
 
-    // --- Transactions Table Card ---
+    // --- Transactions Statement Card ---
     const txCard = document.createElement('div');
-    txCard.className = 'card';
+    txCard.className = 'card financial-table-card mt-4';
 
     const txHeader = document.createElement('div');
     txHeader.className = 'card-header d-flex justify-between align-center flex-wrap gap-2';
 
     const txTitle = document.createElement('h3');
     txTitle.className = 'card-title';
-    txTitle.textContent = `💳 ${t('wallet_tx_history_title')}`;
+    txTitle.innerHTML = `<span>📑</span> <span>${t('wallet_tx_history_title')}</span>`;
 
     const typeSelect = document.createElement('select');
     typeSelect.className = 'form-control form-select-sm';
     [
-        { val: '', label: t('filter_all_types') },
-        { val: '0', label: t('wallet_tx_deposit') },
-        { val: '1', label: t('wallet_tx_withdrawal') },
-        { val: '2', label: t('wallet_tx_transfer') },
-        { val: '3', label: t('wallet_tx_settlement') }
+        { val: '', label: t('filter_all_types') || 'جميع الحركات' },
+        { val: '0', label: `🟢 ${t('wallet_tx_deposit') || 'إيداع'}` },
+        { val: '1', label: `🔴 ${t('wallet_tx_withdrawal') || 'سحب'}` },
+        { val: '2', label: `🔄 ${t('wallet_tx_transfer') || 'تحويل'}` },
+        { val: '3', label: `💰 ${t('wallet_tx_settlement') || 'تسوية'}` }
     ].forEach(opt => {
         const o = document.createElement('option');
         o.value = opt.val;
@@ -713,7 +839,7 @@ export async function renderMerchantWallet(container, apiClient) {
     txCard.appendChild(txHeader);
 
     const txBody = document.createElement('div');
-    txBody.className = 'card-body';
+    txBody.className = 'card-body p-0';
     txCard.appendChild(txBody);
 
     wrapper.appendChild(txCard);
@@ -727,7 +853,7 @@ export async function renderMerchantWallet(container, apiClient) {
             walletValue.textContent = formatCurrency(bal);
             const upd = w.updatedOn || w.updatedAt || w.createdOn;
             if (upd) {
-                walletUpdated.textContent = `${t('th_last_updated')}: ${formatDate(upd)}`;
+                walletUpdated.textContent = `${t('th_last_updated') || 'آخر تحديث'}: ${formatDate(upd)}`;
             }
         } catch (err) {
             console.error('Error loading wallet balance:', err);
@@ -759,7 +885,7 @@ export async function renderMerchantWallet(container, apiClient) {
             const { items, totalCount, totalPages } = extractPaginatedItems(res);
 
             if (!items.length) {
-                const empty = ui.createEmptyState(t('empty_state_transactions'));
+                const empty = ui.createEmptyState(t('empty_state_transactions') || 'لا توجد حركات مالية مسجلة في المحفظة', '💳');
                 txBody.appendChild(empty);
                 return;
             }
@@ -801,35 +927,46 @@ export async function renderMerchantWallet(container, apiClient) {
             items.forEach(tx => {
                 const tr = document.createElement('tr');
 
+                // Transaction ID
                 const tdId = document.createElement('td');
-                tdId.className = 'fw-bold';
-                tdId.textContent = `#${tx.id}`;
+                const chip = document.createElement('span');
+                chip.className = 'order-chip';
+                chip.textContent = `#${tx.id}`;
+                tdId.appendChild(chip);
                 tr.appendChild(tdId);
 
                 const tInfo = typeMap[Number(tx.type)] || { key: 'wallet_tx_transfer', cls: 'status-pending', sign: '' };
 
+                // Type Badge
                 const tdType = document.createElement('td');
                 const badge = document.createElement('span');
                 badge.className = `status-badge ${tInfo.cls}`;
-                badge.textContent = t(tInfo.key);
+                badge.textContent = t(tInfo.key) || 'حركة مالية';
                 tdType.appendChild(badge);
                 tr.appendChild(tdType);
 
+                // Amount
                 const tdAmount = document.createElement('td');
                 const isPositive = tInfo.sign === '+';
                 tdAmount.className = `fw-bold ${isPositive ? 'text-success' : 'text-danger'}`;
                 tdAmount.textContent = `${tInfo.sign} ${formatCurrency(Math.abs(Number(tx.amount) || 0))}`;
                 tr.appendChild(tdAmount);
 
+                // Balance after
                 const tdBal = document.createElement('td');
+                tdBal.className = 'fw-bold';
                 tdBal.textContent = formatCurrency(tx.newBalance ?? tx.balanceAfter ?? 0);
                 tr.appendChild(tdBal);
 
+                // Description
                 const tdDesc = document.createElement('td');
+                tdDesc.className = 'text-muted';
                 tdDesc.textContent = tx.reason || tx.description || tx.notes || tx.note || '-';
                 tr.appendChild(tdDesc);
 
+                // Date
                 const tdDate = document.createElement('td');
+                tdDate.className = 'small text-muted';
                 tdDate.textContent = formatDate(tx.createdOn || tx.createdDate || tx.createdAt);
                 tr.appendChild(tdDate);
 
@@ -866,24 +1003,24 @@ export async function renderMerchantWallet(container, apiClient) {
  */
 function createPaginationControls(currentPage, totalPages, onPageChange) {
     const nav = document.createElement('div');
-    nav.className = 'pagination-controls d-flex justify-center align-center gap-2 mt-3';
+    nav.className = 'pagination-controls';
 
     const prevBtn = document.createElement('button');
     prevBtn.className = 'btn btn-outline btn-sm';
     prevBtn.disabled = currentPage <= 1;
-    prevBtn.textContent = t('btn_prev');
+    prevBtn.innerHTML = `<span>◀</span> <span>${t('btn_prev')}</span>`;
     prevBtn.addEventListener('click', () => {
         if (currentPage > 1) onPageChange(currentPage - 1);
     });
 
     const pageInfo = document.createElement('span');
-    pageInfo.className = 'pagination-info mx-2';
+    pageInfo.className = 'pagination-info';
     pageInfo.textContent = `${t('page')} ${currentPage} / ${totalPages}`;
 
     const nextBtn = document.createElement('button');
     nextBtn.className = 'btn btn-outline btn-sm';
     nextBtn.disabled = currentPage >= totalPages;
-    nextBtn.textContent = t('btn_next');
+    nextBtn.innerHTML = `<span>${t('btn_next')}</span> <span>▶</span>`;
     nextBtn.addEventListener('click', () => {
         if (currentPage < totalPages) onPageChange(currentPage + 1);
     });
