@@ -1319,15 +1319,17 @@ function showDeclineReasonModal(order) {
    Tab 2: Kitchen Progress Board (Kanban Columns)
    ========================================================================== */
 function renderProgressTab(parent) {
+    const isAr = getLanguage() === 'ar';
+    const currText = isAr ? 'ج.م' : 'EGP';
     const kanban = ui.createElement('div', ['kanban-board']);
 
+    // 5 clean columns matching the delivery-first workflow
     const columns = [
-        { title: getLanguage() === 'ar' ? '⏳ بانتظار السائق' : '⏳ Awaiting Driver', status: 'waiting_for_driver' },
-        { title: getLanguage() === 'ar' ? '✅ مؤكد - ابدأ التحضير' : '✅ Confirmed - Start Prep', status: 'confirmed' },
-        { title: t('rest_progress_col_preparing'), status: 'preparing' },
-        { title: t('rest_progress_col_ready'), status: 'ready_for_pickup' },
-        { title: t('rest_progress_col_way'), status: 'on_the_way' },
-        { title: t('rest_progress_col_completed'), status: 'completed' }
+        { title: isAr ? '🔔 طلبات مؤكدة (جديدة)' : '🔔 Confirmed Orders', status: 'confirmed' },
+        { title: isAr ? '🍳 قيد الطهي والتحضير' : '🍳 Preparing in Kitchen', status: 'preparing' },
+        { title: isAr ? '📦 جاهز للاستلام' : '📦 Ready for Pickup', status: 'ready_for_pickup' },
+        { title: isAr ? '🛵 في الطريق مع المندوب' : '🛵 Out for Delivery', status: 'on_the_way' },
+        { title: isAr ? '✅ تم التسليم بنجاح' : '✅ Delivered', status: 'completed' }
     ];
 
     columns.forEach(col => {
@@ -1343,63 +1345,74 @@ function renderProgressTab(parent) {
         const cardList = ui.createElement('div', ['kanban-card-list']);
 
         if (colOrders.length === 0) {
-            cardList.appendChild(ui.createElementWithText('div', t('rest_progress_empty_col'), [], { style: 'text-align: center; color: var(--text-muted); font-size: 0.75rem; padding: 2rem 0;' }));
+            cardList.appendChild(ui.createElementWithText('div', isAr ? 'لا توجد طلبات في هذه المرحلة' : 'No orders in this stage', [], { style: 'text-align: center; color: var(--text-muted); font-size: 0.8rem; padding: 2rem 0;' }));
         } else {
             colOrders.forEach(ord => {
                 const card = ui.createElement('div', ['kanban-card']);
 
                 const cardHeader = ui.createElement('div', ['kanban-card-header']);
-                const ordHeader = getLanguage() === 'ar' ? `طلب #${ord.id}` : `Order #${ord.id}`;
+                const ordHeader = isAr ? `طلب #${ord.id}` : `Order #${ord.id}`;
                 cardHeader.appendChild(ui.createElementWithText('span', ordHeader));
-                cardHeader.appendChild(ui.createElementWithText('span', `$${ord.totalPrice.toFixed(2)}`, [], { style: 'color: var(--color-success);' }));
+                cardHeader.appendChild(ui.createElementWithText('span', `${ord.totalPrice.toFixed(2)} ${currText}`, [], { style: 'color: var(--color-success); font-weight: 800;' }));
                 card.appendChild(cardHeader);
 
+                // Customer Name
+                if (ord.customerName) {
+                    const custEl = ui.createElement('div', [], { style: 'font-size: 0.8rem; font-weight: 700; color: var(--text-secondary);' });
+                    custEl.appendChild(ui.createElementWithText('span', `👤 ${ord.customerName}`));
+                    card.appendChild(custEl);
+                }
+
+                // Items list
                 const cardItems = ui.createElement('div', ['kanban-card-items']);
                 const itemsText = ord.items.map(i => `${i.qty}x ${i.name}`).join(', ');
-                cardItems.appendChild(ui.createElementWithText('p', itemsText.length > 50 ? itemsText.slice(0, 47) + '...' : itemsText));
+                cardItems.appendChild(ui.createElementWithText('p', itemsText.length > 60 ? itemsText.slice(0, 57) + '...' : itemsText));
                 card.appendChild(cardItems);
 
-                // Footer
+                // Customer Notes if present
+                const cardNotes = (ord.notes || ord.note || (ord.rawOrder && (ord.rawOrder.notes || ord.rawOrder.note)) || '').toString().trim();
+                if (cardNotes) {
+                    const notesEl = ui.createElement('div', [], { style: 'font-size: 0.76rem; color: #d97706; background: rgba(245, 158, 11, 0.1); border: 1px dashed rgba(245, 158, 11, 0.35); border-radius: 6px; padding: 3px 6px; margin: 2px 0;' });
+                    notesEl.appendChild(ui.createElementWithText('span', `📝 ${cardNotes}`));
+                    card.appendChild(notesEl);
+                }
+
+                // Footer Actions
                 const footer = ui.createElement('div', ['kanban-card-footer']);
 
-                if (col.status === 'waiting_for_driver') {
-                    // Status=2: Restaurant accepted, waiting for captain to confirm
-                    const info = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.25rem; width: 100%;' });
-                    info.appendChild(ui.createElementWithText('span', getLanguage() === 'ar' ? '🚗 بانتظار قبول سائق للتوصيل...' : '🚗 Awaiting delivery captain...', [], { style: 'color: var(--color-pending); font-size: 0.78rem; font-style: italic;' }));
-                    footer.appendChild(info);
-                } else if (col.status === 'confirmed') {
-                    // Status=3: Captain confirmed → restaurant can now start preparing
-                    const actionBtn = ui.createElementWithText('button', getLanguage() === 'ar' ? '🍳 ابدأ التحضير' : '🍳 Start Preparing', ['btn', 'btn-primary', 'btn-sm'], { style: 'width: 100%; justify-content: center;' });
+                if (col.status === 'confirmed') {
+                    // Captain confirmed → restaurant can now start preparing
+                    const actionBtn = ui.createElementWithText('button', isAr ? '🍳 بدء التحضير' : '🍳 Start Preparing', ['btn', 'btn-primary', 'btn-sm'], { style: 'flex: 1; justify-content: center; font-weight: 800;' });
                     actionBtn.addEventListener('click', async (e) => {
                         e.stopPropagation();
                         await updateStatus(ord.id, 'preparing');
                     });
                     footer.appendChild(actionBtn);
                 } else if (col.status === 'preparing') {
-                    footer.appendChild(ui.createElementWithText('span', t('rest_progress_est', { time: ord.prepTime || 20 }), [], { style: 'color: var(--color-pending); font-weight: bold;' }));
+                    footer.appendChild(ui.createElementWithText('span', isAr ? '⏱️ قيد الطهي' : '⏱️ Cooking', [], { style: 'color: var(--color-pending); font-weight: bold; font-size: 0.78rem;' }));
 
-                    const actionBtn = ui.createElementWithText('button', t('rest_progress_btn_ready'), ['btn', 'btn-primary', 'btn-sm']);
+                    const actionBtn = ui.createElementWithText('button', isAr ? '📦 جاهز للاستلام' : '📦 Mark Ready', ['btn', 'btn-primary', 'btn-sm'], { style: 'font-weight: 800;' });
                     actionBtn.addEventListener('click', async (e) => {
                         e.stopPropagation();
                         await updateStatus(ord.id, 'ready_for_pickup');
                     });
                     footer.appendChild(actionBtn);
                 } else if (col.status === 'ready_for_pickup') {
-                    const statusInfo = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem; width: 100%;' });
-                    statusInfo.appendChild(ui.createElementWithText('span', t('rest_progress_awaiting'), [], { style: 'color: var(--text-muted); font-style: italic; font-size: 0.75rem;' }));
+                    const statusInfo = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.2rem; width: 100%;' });
+                    statusInfo.appendChild(ui.createElementWithText('span', isAr ? '🛵 بانتظار وصول المندوب...' : '🛵 Awaiting driver pickup...', [], { style: 'color: var(--text-muted); font-style: italic; font-size: 0.75rem;' }));
                     footer.appendChild(statusInfo);
                 } else if (col.status === 'on_the_way') {
-                    const statusInfo = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem; width: 100%;' });
-                    statusInfo.appendChild(ui.createElementWithText('span', t('rest_progress_deliver', { name: ord.captainName || (getLanguage() === 'ar' ? 'سائق' : 'Driver') }), [], { style: 'color: var(--color-info); font-size: 0.75rem;' }));
+                    const statusInfo = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.2rem; width: 100%;' });
+                    statusInfo.appendChild(ui.createElementWithText('span', isAr ? `🛵 في الطريق مع ${ord.captainName || 'المندوب'}` : `🛵 On the way with ${ord.captainName || 'Driver'}`, [], { style: 'color: var(--color-info); font-size: 0.75rem;' }));
                     footer.appendChild(statusInfo);
                 } else if (col.status === 'completed') {
-                    footer.appendChild(ui.createElementWithText('span', t('rest_progress_delivered'), [], { style: 'color: var(--color-success); font-weight: bold;' }));
+                    footer.appendChild(ui.createElementWithText('span', isAr ? '✅ تم التسليم' : '✅ Delivered', [], { style: 'color: var(--color-success); font-weight: bold; font-size: 0.8rem;' }));
                 }
 
                 // Quick print button on Kanban footer
                 const kanbanPrintBtn = ui.createElementWithText('button', '🖨️', ['btn', 'btn-secondary', 'btn-xs'], {
-                    title: t('print_invoice') || 'طباعة الفاتورة',
-                    style: 'padding: 0.3rem 0.55rem; font-size: 0.82rem; margin-inline-start: auto; border-radius: 6px;'
+                    title: isAr ? 'طباعة الفاتورة' : 'Print Invoice',
+                    style: 'padding: 0.35rem 0.6rem; font-size: 0.85rem; margin-inline-start: auto; border-radius: 6px;'
                 });
                 kanbanPrintBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
@@ -1410,7 +1423,7 @@ function renderProgressTab(parent) {
                 card.appendChild(footer);
 
                 card.addEventListener('click', () => {
-                    showOrderDetailModal(ord);
+                    ui.showOrderDetailsModal(ord, col.status === 'confirmed' ? () => updateStatus(ord.id, 'preparing') : null, isAr ? '🍳 بدء التحضير' : '🍳 Start Preparing');
                 });
 
                 cardList.appendChild(card);
