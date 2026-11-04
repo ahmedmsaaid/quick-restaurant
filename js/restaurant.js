@@ -500,14 +500,23 @@ async function refreshOrders() {
             const fetchedOrders = data.result.filter(ord => {
                 // Must match this restaurant's userId or products
                 const ordVendorId = ord.userId || (ord.user && ord.user.id) || (ord.userLocation && ord.userLocation.creatorId);
-                if (ordVendorId && parseInt(ordVendorId) === parseInt(myRestaurantId)) return true;
-                if (ord.offerId && (offers || []).some(of => parseInt(of.id) === parseInt(ord.offerId))) return true;
-                const checkProds = ord.products || ord.orderProducts || ord.OrderProducts || [];
-                if (checkProds.length > 0 && checkProds.some(p => myProductIds.has(parseInt(p.productId || (p.product && p.product.id) || (p.Product && p.Product.id))))) return true;
-                if (ord.products && ord.products.length > 0) {
-                    return ord.products.some(p => myProductIds.has(p.productId));
+                let belongs = false;
+                if (ordVendorId && parseInt(ordVendorId) === parseInt(myRestaurantId)) belongs = true;
+                else if (ord.offerId && (offers || []).some(of => parseInt(of.id) === parseInt(ord.offerId))) belongs = true;
+                else {
+                    const checkProds = ord.products || ord.orderProducts || ord.OrderProducts || [];
+                    if (checkProds.length > 0 && checkProds.some(p => myProductIds.has(parseInt(p.productId || (p.product && p.product.id) || (p.Product && p.Product.id))))) belongs = true;
+                    else if (ord.products && ord.products.length > 0 && ord.products.some(p => myProductIds.has(p.productId))) belongs = true;
                 }
-                return false;
+                if (!belongs) return false;
+
+                // An order must NOT come to the restaurant until the delivery driver accepts it.
+                // Exclude orders in status 0 (Created), 1 (PendingForPayment), and 2 (PendingForDelivery)
+                const rawSt = typeof ord.status === 'string' ? parseInt(ord.status, 10) : ord.status;
+                if (rawSt === 0 || rawSt === 1 || rawSt === 2) {
+                    return false;
+                }
+                return true;
             }).map(ord => {
                 const isArLang = (typeof getLanguage === 'function' ? getLanguage() : 'ar') === 'ar';
                 const rawProducts = ord.products || ord.orderProducts || ord.OrderProducts || [];
@@ -553,7 +562,7 @@ async function refreshOrders() {
             // Detect new incoming pending orders for notifications
             if (knownOrderIds !== null) {
                 const prevConfirmedIds = new Set(orders.filter(o => o.status === 'confirmed').map(o => o.id));
-                const newIncoming = fetchedOrders.filter(o => (o.status === 'confirmed' && !prevConfirmedIds.has(o.id)) || (!knownOrderIds.has(o.id) && o.status === 'waiting_for_driver'));
+                const newIncoming = fetchedOrders.filter(o => o.status === 'confirmed' && !prevConfirmedIds.has(o.id));
                 if (newIncoming.length > 0) {
                     console.log('🍔 New incoming food orders detected:', newIncoming);
                     ui.showFullScreenOrderAlert(newIncoming[0].id, () => {
@@ -563,8 +572,8 @@ async function refreshOrders() {
 
                     newIncoming.forEach(ord => {
                         const title = getLanguage() === 'ar'
-                            ? (ord.status === 'confirmed' ? `✅ الطيار قَبِل الطلب (#${ord.id}) - ابدأ التحضير!` : `⏳ طلب جديد بانتظار طيار (#${ord.id})`)
-                            : (ord.status === 'confirmed' ? `✅ Captain Accepted Order (#${ord.id}) - Start Prep!` : `⏳ New Order Awaiting Captain (#${ord.id})`);
+                            ? `✅ المندوب قَبِل الطلب (#${ord.id}) - ابدأ التحضير!`
+                            : `✅ Driver Accepted Order (#${ord.id}) - Start Prep!`;
                         const body = getLanguage() === 'ar'
                             ? `طلب جديد من ${ord.customerName} - الإجمالي: ${ord.finalTotal || ord.totalPrice} ج.م`
                             : `New food order from ${ord.customerName} - Total: ${ord.finalTotal || ord.totalPrice} EGP`;
@@ -640,7 +649,7 @@ async function updateNotificationCount() {
         if (res && res.success) {
             serverCount = parseInt(res.result || 0);
         }
-        const pendingCount = orders.filter(o => o.status === 'confirmed' || o.status === 'waiting_for_driver').length;
+        const pendingCount = orders.filter(o => o.status === 'confirmed').length;
         const totalCount = Math.max(serverCount, pendingCount);
         if (totalCount > 0) {
             badge.textContent = totalCount;
@@ -650,7 +659,7 @@ async function updateNotificationCount() {
         }
     } catch (e) {
         console.error('Failed to fetch notification count:', e);
-        const pendingCount = orders.filter(o => o.status === 'confirmed' || o.status === 'waiting_for_driver').length;
+        const pendingCount = orders.filter(o => o.status === 'confirmed').length;
         if (pendingCount > 0) {
             badge.textContent = pendingCount;
             badge.style.display = 'flex';
@@ -938,7 +947,7 @@ function updateBadges() {
     const qBadge = document.getElementById('rest-badge-queue') || document.getElementById('rest-badge-incoming');
     const pBadge = document.getElementById('rest-badge-progress');
 
-    const countQueue = orders.filter(o => o.status === 'confirmed' || o.status === 'waiting_for_driver').length;
+    const countQueue = orders.filter(o => o.status === 'confirmed').length;
     const countProgress = orders.filter(o => o.status === 'preparing' || o.status === 'ready_for_pickup').length;
 
     if (qBadge) {
@@ -1207,10 +1216,8 @@ function renderSettingsTab(parent) {
    Tab 1: Live Incoming Orders Queue
    ========================================================================== */
 function renderQueueTab(parent) {
-    // Show only brand new orders (status=0) and pending payment orders (status=1) that need restaurant action
-    const confirmedOrders = orders.filter(o => o.status === 'confirmed');
-    const waitingOrders = orders.filter(o => o.status === 'waiting_for_driver' || o.status === 'new' || o.status === 'pending_payment');
-    const incomingOrders = [...confirmedOrders, ...waitingOrders];
+    // Only show orders confirmed by the delivery driver (status=3) that need restaurant preparation
+    const incomingOrders = orders.filter(o => o.status === 'confirmed');
 
     if (incomingOrders.length === 0) {
         const emptyBlock = ui.createElement('div', ['glass-panel'], { style: 'text-align: center; padding: 4rem 2rem;' });
@@ -1226,19 +1233,17 @@ function renderQueueTab(parent) {
         const onAccept = async () => {
             ui.stopAlarmSound();
             const prepTime = 20;
-            const paymentMethod = ord.rawOrder ? ord.rawOrder.paymentMethod : 0;
-            const acceptStatus = paymentMethod === 1 ? 'pending_payment' : 'waiting_for_driver';
 
-            await updateStatus(ord.id, (ord.status === 'new' || ord.status === 'pending_payment') ? acceptStatus : 'preparing', { prepTime });
+            await updateStatus(ord.id, 'preparing', { prepTime });
             ui.showToast(getLanguage() === 'ar' ? 'تم بدء تحضير الطلب بنجاح!' : 'Order preparation started!', 'success');
 
-            const targetTabBtn = document.getElementById('rest-menu-kanban') || document.getElementById('rest-menu-queue');
+            const targetTabBtn = document.getElementById('rest-menu-progress') || document.getElementById('rest-menu-queue');
             if (targetTabBtn) targetTabBtn.click();
         };
 
         const cardView = ui.renderDashboardOrderCard(ord, {
-            readonly: (ord.status !== 'confirmed' && ord.status !== 'new' && ord.status !== 'pending_payment'),
-            acceptText: getLanguage() === 'ar' ? '🍳 بدء التحضير' : '🍳 Start Preparing',
+            readonly: false,
+            acceptText: getLanguage() === 'ar' ? '🍳 قبول وبدء التحضير' : '🍳 Accept & Start Preparing',
             onAccept
         });
 
