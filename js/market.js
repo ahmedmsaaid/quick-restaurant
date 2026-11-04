@@ -353,7 +353,7 @@ async function refreshOrders() {
                     type: 1,
                     finalTotal: ord.totalPrice,
                     paymentMethod: ord.paymentMethod || (ord.rawOrder && ord.rawOrder.paymentMethod) || 0,
-                    notes: ord.note || ord.notes || '',
+                    notes: ord.notes || ord.note || ord.Notes || ord.Note || ord.description || ord.customerNotes || '',
                     customerName: ord.creator ? ord.creator.name : (ord.user && ord.user.role === 2 ? ord.user.name : (getLanguage() === 'ar' ? 'عميل' : 'Customer')),
                     customerPhone: ord.creator ? ord.creator.phone : (ord.user && ord.user.role === 2 ? ord.user.phone : ''),
                     createdAt: ord.createdAt || ord.createdOn,
@@ -512,6 +512,7 @@ async function updateStatus(orderId, localStatus) {
     try {
         let backendStatus = mapLocalStatusToBackend(localStatus);
         const order = orders.find(o => o.id === orderId.toString());
+        const shouldAutoPrint = (localStatus === 'preparing' || localStatus === 'waiting_for_driver' || localStatus === 'pending_payment');
 
         const rowVersion = order && order.rawOrder ? order.rawOrder.rowVersion : null;
         await apiFetch('/api/v1/orders/status', {
@@ -521,6 +522,12 @@ async function updateStatus(orderId, localStatus) {
         await refreshOrders();
         updateBadges();
         renderActiveTab();
+        if (shouldAutoPrint) {
+            const updatedOrder = orders.find(o => o.id === orderId.toString()) || order;
+            if (updatedOrder && typeof ui.printOrderReceipt === 'function') {
+                setTimeout(() => ui.printOrderReceipt(updatedOrder), 150);
+            }
+        }
     } catch (e) {
         console.error('Failed to update order status:', e);
         ui.showToast(t('error_generic') + ': ' + e.message, 'error');
@@ -1612,9 +1619,9 @@ function showEditProductModal(item) {
    ========================================================================== */
 function renderOrdersTab(parent) {
     // New orders needing accept/decline
-    const newOrders = [];
+    const newOrders = orders.filter(o => o.status === 'new' || o.status === 'pending_payment');
     // Accepted, waiting for captain to confirm
-    const waitingOrders = orders.filter(o => o.status === 'waiting_for_driver' || o.status === 'new' || o.status === 'pending_payment');
+    const waitingOrders = orders.filter(o => o.status === 'waiting_for_driver');
     // Captain confirmed, market can prepare
     const confirmedOrders = orders.filter(o => o.status === 'confirmed' || o.status === 'preparing');
     const completedOrders = orders.filter(o => o.status === 'completed' || o.status === 'ready_for_pickup' || o.status === 'on_the_way');

@@ -4,12 +4,12 @@
  * menu customizer modifiers, and emergency closure overlays.
  */
 
-import * as ui from './ui-utils.js?v=43.0';
-import { t, getLanguage, setLanguage, initTranslations, subscribeLangChange } from './translations.js?v=42.0';
+import * as ui from './ui-utils.js?v=46.0';
+import { t, getLanguage, setLanguage, initTranslations, subscribeLangChange } from './translations.js?v=46.0';
 import { ApiClient, ImageService, Logger } from './core.js?v=42.0';
 import { initFCMNotificationService } from './fcm-helper.js?v=42.0';
 import { initSignalRNotificationService, stopSignalRConnection } from './signalr-helper.js?v=42.0';
-import { renderMerchantOverview, renderMerchantSettlements, renderMerchantWallet } from './modules/merchant-financial.js?v=42.0';
+import { renderMerchantOverview, renderMerchantSettlements, renderMerchantWallet } from './modules/merchant-financial.js?v=46.0';
 console.log('🚀 restaurant.js module loaded');
 
 function clearInvalid(inputEl) {
@@ -540,7 +540,7 @@ async function refreshOrders() {
                     type: 0,
                     finalTotal: ord.totalPrice,
                     paymentMethod: ord.paymentMethod || (ord.rawOrder && ord.rawOrder.paymentMethod) || 0,
-                    notes: ord.note || ord.notes || '',
+                    notes: ord.notes || ord.note || ord.Notes || ord.Note || ord.description || ord.customerNotes || '',
                     customerName: ord.creator ? ord.creator.name : (ord.user && ord.user.role === 2 ? ord.user.name : (getLanguage() === 'ar' ? 'عميل' : 'Customer')),
                     customerPhone: ord.creator ? ord.creator.phone : (ord.user && ord.user.role === 2 ? ord.user.phone : ''),
                     createdAt: ord.createdAt || ord.createdOn,
@@ -589,6 +589,7 @@ async function refreshOrders() {
 
 // Status Updates
 async function updateStatus(orderId, localStatus, extra = {}) {
+    const shouldAutoPrint = (localStatus === 'preparing' || localStatus === 'waiting_for_driver' || localStatus === 'pending_payment');
     try {
         let backendStatus = mapLocalStatusToBackend(localStatus);
         const order = orders.find(o => o.id === orderId.toString());
@@ -608,6 +609,13 @@ async function updateStatus(orderId, localStatus, extra = {}) {
         updateBadges();
         checkBuzzerAlarm();
         renderActiveTab();
+
+        if (shouldAutoPrint) {
+            const updatedOrder = orders.find(o => o.id === orderId.toString()) || order;
+            if (updatedOrder && typeof ui.printOrderReceipt === 'function') {
+                setTimeout(() => ui.printOrderReceipt(updatedOrder), 150);
+            }
+        }
     } catch (e) {
         console.error('Failed to update order status:', e);
         ui.showToast(t('error_generic') + ': ' + e.message, 'error');
@@ -1221,7 +1229,7 @@ function renderQueueTab(parent) {
             const paymentMethod = ord.rawOrder ? ord.rawOrder.paymentMethod : 0;
             const acceptStatus = paymentMethod === 1 ? 'pending_payment' : 'waiting_for_driver';
 
-            await updateStatus(ord.id, 'preparing', { prepTime });
+            await updateStatus(ord.id, (ord.status === 'new' || ord.status === 'pending_payment') ? acceptStatus : 'preparing', { prepTime });
             ui.showToast(getLanguage() === 'ar' ? 'تم بدء تحضير الطلب بنجاح!' : 'Order preparation started!', 'success');
 
             const targetTabBtn = document.getElementById('rest-menu-kanban') || document.getElementById('rest-menu-queue');
@@ -1229,7 +1237,7 @@ function renderQueueTab(parent) {
         };
 
         const cardView = ui.renderDashboardOrderCard(ord, {
-            readonly: ord.status !== 'confirmed',
+            readonly: (ord.status !== 'confirmed' && ord.status !== 'new' && ord.status !== 'pending_payment'),
             acceptText: getLanguage() === 'ar' ? '🍳 بدء التحضير' : '🍳 Start Preparing',
             onAccept
         });
@@ -1412,7 +1420,16 @@ function renderProgressTab(parent) {
 }
 
 function showOrderDetailModal(order) {
-    ui.showOrderDetailsModal(order);
+    const isConfirmed = order && order.status === 'confirmed';
+    ui.showOrderDetailsModal(order, {
+        readonly: !isConfirmed,
+        acceptText: getLanguage() === 'ar' ? '🍳 بدء التحضير' : '🍳 Start Preparing',
+        onAccept: isConfirmed ? async () => {
+            ui.stopAlarmSound();
+            await updateStatus(order.id, 'preparing', { prepTime: 20 });
+            ui.showToast(getLanguage() === 'ar' ? 'تم بدء تحضير الطلب بنجاح!' : 'Order preparation started!', 'success');
+        } : null
+    });
 }
 
 /* ==========================================================================

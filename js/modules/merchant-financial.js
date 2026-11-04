@@ -1,32 +1,35 @@
 /**
- * Quick Service Merchant - Financial, Settlements, and Wallet Module
- * Strictly adheres to DASHBOARD_GUIDELINES.md:
- * - Uses apiClient.fetch()
- * - Safe DOM creation (no raw innerHTML for API values)
- * - Translations via t()
- * - CSS Variables only
- * - Proper error, loading, and empty states
+ * Merchant Financial & Wallet Module
+ * Used by Restaurant and Supermarket Dashboards
+ * Strictly follows Quick-Service Frontend Guidelines:
+ * - Zero innerHTML for dynamic data (XSS prevention)
+ * - Full i18n support via t()
+ * - Responsive tables & cards
  */
 
-import * as ui from '../ui-utils.js?v=42.0';
-import { t, getLanguage } from '../translations.js?v=27';
+import * as ui from '../ui-utils.js?v=46.0';
+import { t, getLanguage } from '../translations.js?v=46.0';
 
-let currentFilterType = 2; // Default: ThisMonth (2)
-let currentCustomFrom = '';
-let currentCustomTo = '';
-let currentSettlementStatus = '';
-let currentWalletType = '';
-
+/**
+ * Formats a number as currency (EGP / ج.م)
+ */
 function formatCurrency(val) {
     const num = Number(val) || 0;
-    const curr = getLanguage() === 'ar' ? 'ج.م' : 'EGP';
-    return `${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${curr}`;
+    const formatted = num.toLocaleString(getLanguage() === 'ar' ? 'ar-EG' : 'en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+    });
+    return `${formatted} ${t('currency_egp')}`;
 }
 
-function formatDate(isoStr) {
-    if (!isoStr) return '-';
+/**
+ * Formats an ISO date string to localized readable date/time
+ */
+function formatDate(dateStr) {
+    if (!dateStr) return '-';
     try {
-        const d = new Date(isoStr);
+        const d = new Date(dateStr);
+        if (isNaN(d.getTime())) return dateStr;
         return d.toLocaleDateString(getLanguage() === 'ar' ? 'ar-EG' : 'en-US', {
             year: 'numeric',
             month: 'short',
@@ -34,823 +37,860 @@ function formatDate(isoStr) {
             hour: '2-digit',
             minute: '2-digit'
         });
-    } catch (_) {
-        return isoStr;
+    } catch {
+        return dateStr;
     }
 }
 
-function getSettlementStatusBadge(status) {
-    const badge = ui.createElement('span', ['badge']);
-    switch (Number(status)) {
-        case 0:
-            badge.classList.add('badge-warning');
-            badge.textContent = t('settlement_status_pending');
-            break;
-        case 1:
-            badge.classList.add('badge-success');
-            badge.textContent = t('settlement_status_completed');
-            break;
-        case 2:
-            badge.classList.add('badge-danger');
-            badge.textContent = t('settlement_status_rejected');
-            break;
-        case 3:
-            badge.classList.add('badge-info');
-            badge.textContent = t('settlement_status_completed');
-            break;
-        default:
-            badge.classList.add('badge-secondary');
-            badge.textContent = '-';
-    }
-    return badge;
+/**
+ * Normalizes paginated API responses where `res.result` may be either
+ * a direct Array or an object containing `items` / `data`.
+ */
+function extractPaginatedItems(res) {
+    if (!res) return { items: [], totalCount: 0, totalPages: 1 };
+    const items = Array.isArray(res.result)
+        ? res.result
+        : (Array.isArray(res.result?.items)
+            ? res.result.items
+            : (Array.isArray(res.result?.data) ? res.result.data : []));
+    const totalCount = res.totalCount ?? res.result?.totalCount ?? items.length;
+    const totalPages = res.totalPages ?? res.result?.totalPages ?? 1;
+    return { items, totalCount, totalPages: Math.max(1, totalPages) };
 }
 
-function getTxTypeBadge(type) {
-    const badge = ui.createElement('span', ['badge']);
-    switch (Number(type)) {
-        case 0:
-            badge.classList.add('badge-info');
-            badge.textContent = t('wallet_tx_deposit');
-            break;
-        case 1:
-            badge.classList.add('badge-warning');
-            badge.textContent = t('wallet_tx_withdrawal');
-            break;
-        case 2:
-            badge.classList.add('badge-secondary');
-            badge.textContent = t('wallet_tx_transfer');
-            break;
-        case 3:
-            badge.classList.add('badge-danger');
-            badge.textContent = t('wallet_tx_commission');
-            break;
-        case 4:
-            badge.classList.add('badge-success');
-            badge.textContent = t('wallet_tx_order_payment');
-            break;
-        case 5:
-            badge.classList.add('badge-info');
-            badge.textContent = t('wallet_tx_settlement');
-            break;
-        case 6:
-            badge.classList.add('badge-warning');
-            badge.textContent = t('wallet_tx_refund');
-            break;
-        default:
-            badge.classList.add('badge-secondary');
-            badge.textContent = '-';
+/**
+ * Helper to create a KPI Stat Card using safe DOM manipulation
+ */
+function createKpiCard({ icon, label, value, subtext, accentClass = 'accent-primary' }) {
+    const card = document.createElement('div');
+    card.className = `stat-card financial-kpi-card ${accentClass}`;
+
+    const header = document.createElement('div');
+    header.className = 'stat-card-header';
+
+    const iconEl = document.createElement('span');
+    iconEl.className = 'stat-icon';
+    iconEl.textContent = icon;
+
+    const labelEl = document.createElement('span');
+    labelEl.className = 'stat-label';
+    labelEl.textContent = label;
+
+    header.appendChild(iconEl);
+    header.appendChild(labelEl);
+
+    const valueEl = document.createElement('div');
+    valueEl.className = 'stat-value';
+    valueEl.textContent = value;
+
+    card.appendChild(header);
+    card.appendChild(valueEl);
+
+    if (subtext) {
+        const subEl = document.createElement('div');
+        subEl.className = 'stat-subtext';
+        subEl.textContent = subtext;
+        card.appendChild(subEl);
     }
-    return badge;
+
+    return card;
 }
 
-/* ==========================================================================
-   Tab: Financial & Store Performance Overview (GET /api/v1/dashboard/merchant)
-   ========================================================================== */
-export async function renderMerchantOverview(container, apiClient) {
+// ============================================================================
+// 1. MERCHANT FINANCIAL OVERVIEW TAB
+// ============================================================================
+
+export async function renderMerchantOverview(container, apiClient, merchantId) {
+    if (!container) return;
     container.replaceChildren();
 
-    const rootWrapper = ui.createElement('div', ['merchant-financial-view']);
+    const state = {
+        filterType: 2, // Default: ThisMonth (0=Today, 1=ThisWeek, 2=ThisMonth, 3=Custom)
+        fromDate: '',
+        toDate: '',
+        ordersPage: 1,
+        ordersPageSize: 10
+    };
 
-    // Filter Bar
-    const filterCard = ui.createElement('div', ['card', 'mb-4']);
-    filterCard.style.padding = '16px';
-    filterCard.style.display = 'flex';
-    filterCard.style.flexWrap = 'wrap';
-    filterCard.style.gap = '12px';
-    filterCard.style.alignItems = 'center';
-    filterCard.style.justifyContent = 'space-between';
+    const wrapper = document.createElement('div');
+    wrapper.className = 'financial-overview-wrapper';
 
-    const filterLeft = ui.createElement('div', ['filter-group']);
-    filterLeft.style.display = 'flex';
-    filterLeft.style.gap = '8px';
-    filterLeft.style.alignItems = 'center';
-    filterLeft.style.flexWrap = 'wrap';
+    // --- Filter Bar ---
+    const filterBar = document.createElement('div');
+    filterBar.className = 'card financial-filter-bar';
 
-    const filterLabel = ui.createElementWithText('span', t('financial_filter_label') + ':', ['fw-bold']);
-    filterLeft.appendChild(filterLabel);
+    const filterGroup = document.createElement('div');
+    filterGroup.className = 'filter-group-row';
 
-    const filterSelect = ui.createElement('select', ['form-control']);
-    filterSelect.style.width = 'auto';
+    const filterLabel = document.createElement('span');
+    filterLabel.className = 'filter-label';
+    filterLabel.textContent = t('financial_filter_label');
+    filterGroup.appendChild(filterLabel);
 
-    const options = [
-        { val: 0, text: t('filter_today') },
-        { val: 1, text: t('filter_this_week') },
-        { val: 2, text: t('filter_this_month') },
-        { val: 3, text: t('filter_custom') }
+    const filterButtons = [
+        { type: 0, key: 'filter_today' },
+        { type: 1, key: 'filter_this_week' },
+        { type: 2, key: 'filter_this_month' },
+        { type: 3, key: 'filter_custom' }
     ];
 
-    options.forEach(opt => {
-        const o = document.createElement('option');
-        o.value = opt.val;
-        o.textContent = opt.text;
-        if (opt.val === currentFilterType) o.selected = true;
-        filterSelect.appendChild(o);
-    });
+    const btnContainer = document.createElement('div');
+    btnContainer.className = 'filter-pills';
 
-    filterLeft.appendChild(filterSelect);
+    const customDateContainer = document.createElement('div');
+    customDateContainer.className = 'custom-date-inputs hidden';
 
-    // Custom Date Range Container
-    const customDateBox = ui.createElement('div', ['custom-date-box']);
-    customDateBox.style.display = currentFilterType === 3 ? 'flex' : 'none';
-    customDateBox.style.gap = '8px';
-    customDateBox.style.alignItems = 'center';
-
-    const fromInput = ui.createElement('input', ['form-control']);
+    const fromInput = document.createElement('input');
     fromInput.type = 'date';
-    fromInput.value = currentCustomFrom;
+    fromInput.className = 'form-control date-input';
 
-    const toInput = ui.createElement('input', ['form-control']);
+    const toInput = document.createElement('input');
     toInput.type = 'date';
-    toInput.value = currentCustomTo;
+    toInput.className = 'form-control date-input';
 
-    const btnApplyDates = ui.createElementWithText('button', t('btn_apply'), ['btn', 'btn-primary', 'btn-sm']);
-    btnApplyDates.addEventListener('click', () => {
-        currentCustomFrom = fromInput.value;
-        currentCustomTo = toInput.value;
-        renderMerchantOverview(container, apiClient);
-    });
-
-    customDateBox.appendChild(fromInput);
-    customDateBox.appendChild(document.createTextNode(' - '));
-    customDateBox.appendChild(toInput);
-    customDateBox.appendChild(btnApplyDates);
-
-    filterLeft.appendChild(customDateBox);
-    filterCard.appendChild(filterLeft);
-
-    filterSelect.addEventListener('change', (e) => {
-        currentFilterType = Number(e.target.value);
-        if (currentFilterType === 3) {
-            customDateBox.style.display = 'flex';
-        } else {
-            customDateBox.style.display = 'none';
-            renderMerchantOverview(container, apiClient);
-        }
-    });
-
-    rootWrapper.appendChild(filterCard);
-
-    // Content container for stats & orders
-    const dataContainer = ui.createElement('div', ['data-container']);
-    rootWrapper.appendChild(dataContainer);
-    container.appendChild(rootWrapper);
-
-    ui.renderShimmerGrid(dataContainer);
-
-    try {
-        let endpoint = `/api/v1/dashboard/merchant?filterType=${currentFilterType}`;
-        if (currentFilterType === 3 && currentCustomFrom && currentCustomTo) {
-            endpoint += `&fromDate=${encodeURIComponent(currentCustomFrom)}&toDate=${encodeURIComponent(currentCustomTo)}`;
-        }
-
-        const res = await apiClient.fetch(endpoint);
-        dataContainer.replaceChildren();
-
-        if (!res || !res.success || !res.result) {
-            const emptyCard = ui.createEmptyState(t('empty_state_orders'));
-            dataContainer.appendChild(emptyCard);
+    const applyCustomBtn = document.createElement('button');
+    applyCustomBtn.className = 'btn btn-primary btn-sm';
+    applyCustomBtn.textContent = t('btn_apply');
+    applyCustomBtn.addEventListener('click', () => {
+        if (!fromInput.value || !toInput.value) {
+            ui.showToast(t('settlement_Toast_invalid_dates'), 'warning');
             return;
         }
+        state.fromDate = new Date(fromInput.value).toISOString();
+        state.toDate = new Date(toInput.value + 'T23:59:59').toISOString();
+        loadDashboardSummary();
+    });
 
-        const data = res.result;
+    customDateContainer.appendChild(fromInput);
+    customDateContainer.appendChild(toInput);
+    customDateContainer.appendChild(applyCustomBtn);
 
-        // Metric Cards Grid
-        const statsGrid = ui.createElement('div', ['analytics-grid', 'mb-4']);
-        statsGrid.style.display = 'grid';
-        statsGrid.style.gridTemplateColumns = 'repeat(auto-fit, minmax(220px, 1fr))';
-        statsGrid.style.gap = '16px';
+    filterButtons.forEach(fb => {
+        const btn = document.createElement('button');
+        btn.className = `btn btn-filter ${state.filterType === fb.type ? 'active' : ''}`;
+        btn.textContent = t(fb.key);
+        btn.addEventListener('click', () => {
+            state.filterType = fb.type;
+            Array.from(btnContainer.children).forEach(c => c.classList.remove('active'));
+            btn.classList.add('active');
 
-        const createStatCard = (title, value, subtext, icon, highlightColor) => {
-            const card = ui.createElement('div', ['summary-card']);
-            card.style.background = 'var(--color-card-bg, #ffffff)';
-            card.style.border = '1px solid var(--color-border, #e5e7eb)';
-            card.style.borderRadius = '12px';
-            card.style.padding = '20px';
-            card.style.boxShadow = '0 2px 8px rgba(0,0,0,0.04)';
-            card.style.position = 'relative';
-            card.style.overflow = 'hidden';
+            if (fb.type === 3) {
+                customDateContainer.classList.remove('hidden');
+            } else {
+                customDateContainer.classList.add('hidden');
+                state.fromDate = '';
+                state.toDate = '';
+                loadDashboardSummary();
+            }
+        });
+        btnContainer.appendChild(btn);
+    });
 
-            if (highlightColor) {
-                const borderAccent = ui.createElement('div', ['card-accent']);
-                borderAccent.style.position = 'absolute';
-                borderAccent.style.top = '0';
-                borderAccent.style.left = '0';
-                borderAccent.style.right = '0';
-                borderAccent.style.height = '4px';
-                borderAccent.style.background = highlightColor;
-                card.appendChild(borderAccent);
+    const refreshBtn = document.createElement('button');
+    refreshBtn.className = 'btn btn-outline btn-sm ms-auto';
+    refreshBtn.textContent = `🔄 ${t('btn_refresh')}`;
+    refreshBtn.addEventListener('click', () => {
+        loadDashboardSummary();
+        loadDeliveredOrders();
+    });
+
+    filterGroup.appendChild(btnContainer);
+    filterGroup.appendChild(customDateContainer);
+    filterGroup.appendChild(refreshBtn);
+    filterBar.appendChild(filterGroup);
+    wrapper.appendChild(filterBar);
+
+    // --- KPI Cards Grid ---
+    const kpiGrid = document.createElement('div');
+    kpiGrid.className = 'stats-grid financial-kpi-grid';
+    wrapper.appendChild(kpiGrid);
+
+    // --- Financial Breakdown & Recent Delivered Orders Section ---
+    const ordersCard = document.createElement('div');
+    ordersCard.className = 'card mt-4';
+
+    const ordersHeader = document.createElement('div');
+    ordersHeader.className = 'card-header d-flex justify-between align-center';
+
+    const ordersTitle = document.createElement('h3');
+    ordersTitle.className = 'card-title';
+    ordersTitle.textContent = `📦 ${t('recent_orders_title')} (${t('order_status_delivered')})`;
+    ordersHeader.appendChild(ordersTitle);
+    ordersCard.appendChild(ordersHeader);
+
+    const ordersBody = document.createElement('div');
+    ordersBody.className = 'card-body';
+    ordersCard.appendChild(ordersBody);
+
+    wrapper.appendChild(ordersCard);
+    container.appendChild(wrapper);
+
+    // --- Loaders ---
+    async function loadDashboardSummary() {
+        kpiGrid.replaceChildren();
+        for (let i = 0; i < 6; i++) {
+            const skel = document.createElement('div');
+            skel.className = 'stat-card skeleton-box';
+            skel.style.height = '120px';
+            kpiGrid.appendChild(skel);
+        }
+
+        try {
+            const params = new URLSearchParams();
+            params.append('FilterType', state.filterType);
+            if (state.filterType === 3 && state.fromDate && state.toDate) {
+                params.append('FromDate', state.fromDate);
+                params.append('ToDate', state.toDate);
             }
 
-            const headerRow = ui.createElement('div', ['card-header-row']);
-            headerRow.style.display = 'flex';
-            headerRow.style.justifyContent = 'space-between';
-            headerRow.style.alignItems = 'center';
-            headerRow.style.marginBottom = '12px';
+            const res = await apiClient.fetch(`/api/v1/dashboard/merchant?${params.toString()}`, {
+                method: 'GET'
+            });
 
-            const titleEl = ui.createElementWithText('span', title, ['card-title']);
-            titleEl.style.fontSize = '0.9rem';
-            titleEl.style.color = 'var(--color-text-muted, #6b7280)';
-            titleEl.style.fontWeight = '600';
-            headerRow.appendChild(titleEl);
+            kpiGrid.replaceChildren();
+            const d = res?.result || {};
 
-            if (icon) {
-                const iconEl = ui.createElementWithText('span', icon, ['card-icon']);
-                iconEl.style.fontSize = '1.3rem';
-                headerRow.appendChild(iconEl);
+            kpiGrid.appendChild(createKpiCard({
+                icon: '🧾',
+                label: t('merchant_kpi_orders'),
+                value: String(d.ordersCount ?? 0),
+                subtext: t('stat_orders_desc'),
+                accentClass: 'accent-blue'
+            }));
+
+            kpiGrid.appendChild(createKpiCard({
+                icon: '💰',
+                label: t('merchant_kpi_revenue'),
+                value: formatCurrency(d.totalRevenue ?? d.totalSalesAmount ?? 0),
+                subtext: t('stat_gmv_desc'),
+                accentClass: 'accent-green'
+            }));
+
+            kpiGrid.appendChild(createKpiCard({
+                icon: '📊',
+                label: t('merchant_kpi_commission'),
+                value: formatCurrency(d.quickCommission ?? 0),
+                subtext: t('stat_commission_desc'),
+                accentClass: 'accent-orange'
+            }));
+
+            kpiGrid.appendChild(createKpiCard({
+                icon: '✅',
+                label: t('merchant_kpi_settled'),
+                value: formatCurrency(d.settledAmount ?? 0),
+                subtext: t('stat_settled_desc'),
+                accentClass: 'accent-teal'
+            }));
+
+            kpiGrid.appendChild(createKpiCard({
+                icon: '⏳',
+                label: t('merchant_kpi_due'),
+                value: formatCurrency(d.duePayout ?? 0),
+                subtext: t('stat_due_desc'),
+                accentClass: 'accent-purple'
+            }));
+
+            kpiGrid.appendChild(createKpiCard({
+                icon: '🏦',
+                label: t('merchant_kpi_wallet'),
+                value: formatCurrency(d.currentWalletBalance ?? 0),
+                subtext: t('stat_balance_desc'),
+                accentClass: 'accent-primary'
+            }));
+        } catch (err) {
+            console.error('Error loading merchant dashboard summary:', err);
+            kpiGrid.replaceChildren();
+            const errEl = document.createElement('div');
+            errEl.className = 'error-state p-3';
+            errEl.textContent = t('network_error');
+            kpiGrid.appendChild(errEl);
+        }
+    }
+
+    async function loadDeliveredOrders() {
+        ordersBody.replaceChildren();
+        const loadingEl = document.createElement('div');
+        loadingEl.className = 'loading-spinner p-4 text-center';
+        loadingEl.textContent = t('loading');
+        ordersBody.appendChild(loadingEl);
+
+        try {
+            const ordersReqBody = {
+                pageNumber: state.ordersPage,
+                pageSize: state.ordersPageSize,
+                enablePagination: true,
+                filters: {
+                    status: 7 // Delivered = 7
+                }
+            };
+            if (merchantId) {
+                ordersReqBody.filters.userId = Number(merchantId);
             }
-            card.appendChild(headerRow);
 
-            const valEl = ui.createElementWithText('div', value, ['card-value']);
-            valEl.style.fontSize = '1.6rem';
-            valEl.style.fontWeight = '700';
-            valEl.style.color = highlightColor || 'var(--color-text-main, #111827)';
-            valEl.style.marginBottom = '6px';
-            card.appendChild(valEl);
+            const ordersRes = await apiClient.fetch('/api/v1/orders', {
+                method: 'PATCH',
+                body: JSON.stringify(ordersReqBody)
+            });
 
-            if (subtext) {
-                const subEl = ui.createElementWithText('div', subtext, ['card-subtext']);
-                subEl.style.fontSize = '0.8rem';
-                subEl.style.color = 'var(--color-text-muted, #9ca3af)';
-                card.appendChild(subEl);
+            ordersBody.replaceChildren();
+            const { items: orders, totalCount, totalPages } = extractPaginatedItems(ordersRes);
+
+            if (!orders.length) {
+                const emptyOrders = ui.createEmptyState(t('empty_state_orders'));
+                ordersBody.appendChild(emptyOrders);
+                return;
             }
 
-            return card;
-        };
+            const tableResponsive = document.createElement('div');
+            tableResponsive.className = 'table-responsive';
 
-        // 1. Delivered Orders
-        statsGrid.appendChild(createStatCard(
-            t('merchant_stat_orders'),
-            String(data.deliveredOrdersCount ?? 0),
-            t('stat_orders_desc'),
-            '📦',
-            'var(--color-primary, #00796B)'
-        ));
-
-        // 2. Total Sales
-        statsGrid.appendChild(createStatCard(
-            t('merchant_stat_earnings'),
-            formatCurrency(data.totalEarnings ?? 0),
-            t('stat_gmv_desc'),
-            '💵',
-            'var(--color-success, #10B981)'
-        ));
-
-        // 3. Platform Commission
-        statsGrid.appendChild(createStatCard(
-            t('merchant_stat_commission'),
-            formatCurrency(data.quickCommission ?? 0),
-            t('stat_commission_desc'),
-            '📊',
-            'var(--color-warning, #F59E0B)'
-        ));
-
-        // 4. Settled Amount
-        statsGrid.appendChild(createStatCard(
-            t('merchant_stat_settled'),
-            formatCurrency(data.settledAmount ?? 0),
-            t('stat_settled_desc'),
-            '🏦',
-            '#6366F1'
-        ));
-
-        // 5. Due Payout (Highlighted)
-        statsGrid.appendChild(createStatCard(
-            t('merchant_stat_due'),
-            formatCurrency(data.duePayout ?? 0),
-            t('stat_due_desc'),
-            '⏳',
-            'var(--color-danger, #EF4444)'
-        ));
-
-        // 6. Current Wallet Balance
-        statsGrid.appendChild(createStatCard(
-            t('merchant_stat_balance'),
-            formatCurrency(data.currentWalletBalance ?? 0),
-            t('stat_balance_desc'),
-            '👛',
-            '#06B6D4'
-        ));
-
-        dataContainer.appendChild(statsGrid);
-
-        // Orders Breakdown Section
-        const ordersCard = ui.createElement('div', ['card']);
-        ordersCard.style.padding = '20px';
-        ordersCard.style.borderRadius = '12px';
-        ordersCard.style.background = 'var(--color-card-bg, #ffffff)';
-        ordersCard.style.boxShadow = '0 2px 8px rgba(0,0,0,0.04)';
-
-        const ordersHeader = ui.createElement('div', ['card-header', 'mb-3']);
-        ordersHeader.style.display = 'flex';
-        ordersHeader.style.justifyContent = 'space-between';
-        ordersHeader.style.alignItems = 'center';
-
-        const ordersTitle = ui.createElementWithText('h3', t('recent_orders_title'), ['h5', 'm-0']);
-        ordersHeader.appendChild(ordersTitle);
-        ordersCard.appendChild(ordersHeader);
-
-        const ordersList = Array.isArray(data.orders) ? data.orders : [];
-
-        if (ordersList.length === 0) {
-            const emptyOrders = ui.createEmptyState(t('empty_state_orders'));
-            ordersCard.appendChild(emptyOrders);
-        } else {
-            const tableWrap = ui.createElement('div', ['table-responsive']);
-            const table = ui.createElement('table', ['table', 'table-hover', 'align-middle']);
+            const table = document.createElement('table');
+            table.className = 'data-table financial-table';
 
             const thead = document.createElement('thead');
-            const trHead = document.createElement('tr');
-            [
-                '#',
+            const headerRow = document.createElement('tr');
+            const headers = [
                 t('th_order_id'),
                 t('th_total_price'),
                 t('th_commission'),
                 t('th_net_earnings'),
                 t('th_status'),
                 t('th_date')
-            ].forEach(hText => {
+            ];
+            headers.forEach(hText => {
                 const th = document.createElement('th');
                 th.textContent = hText;
+                headerRow.appendChild(th);
+            });
+            thead.appendChild(headerRow);
+            table.appendChild(thead);
+
+            const tbody = document.createElement('tbody');
+            orders.forEach(order => {
+                const tr = document.createElement('tr');
+
+                const tdId = document.createElement('td');
+                tdId.className = 'fw-bold';
+                tdId.textContent = `#${order.id}`;
+                tr.appendChild(tdId);
+
+                const totalPriceVal = Number(order.totalPrice || 0);
+                const deliveryFeeVal = Number(order.deliveryFee || 0);
+                const orderFeeVal = Number(order.orderFee || 0);
+                const itemsSubtotal = Math.max(0, totalPriceVal - deliveryFeeVal - orderFeeVal);
+                const commissionVal = Number(order.commission ?? order.quickCommission ?? 0);
+                const netEarningsVal = Number(order.netEarnings ?? (itemsSubtotal - commissionVal));
+
+                const tdTotal = document.createElement('td');
+                tdTotal.textContent = formatCurrency(itemsSubtotal || totalPriceVal);
+                tr.appendChild(tdTotal);
+
+                const tdComm = document.createElement('td');
+                tdComm.className = 'text-danger';
+                tdComm.textContent = `- ${formatCurrency(commissionVal)}`;
+                tr.appendChild(tdComm);
+
+                const tdNet = document.createElement('td');
+                tdNet.className = 'text-success fw-bold';
+                tdNet.textContent = formatCurrency(netEarningsVal);
+                tr.appendChild(tdNet);
+
+                const tdStatus = document.createElement('td');
+                const badge = document.createElement('span');
+                badge.className = 'status-badge status-completed';
+                badge.textContent = t('order_status_delivered');
+                tdStatus.appendChild(badge);
+                tr.appendChild(tdStatus);
+
+                const tdDate = document.createElement('td');
+                tdDate.textContent = formatDate(order.createdOn || order.createdDate || order.createdAt);
+                tr.appendChild(tdDate);
+
+                tbody.appendChild(tr);
+            });
+
+            table.appendChild(tbody);
+            tableResponsive.appendChild(table);
+            ordersBody.appendChild(tableResponsive);
+
+            // Pagination Controls
+            const calcPages = Math.ceil(totalCount / state.ordersPageSize) || totalPages || 1;
+            if (calcPages > 1) {
+                const pagEl = createPaginationControls(state.ordersPage, calcPages, (newPage) => {
+                    state.ordersPage = newPage;
+                    loadDeliveredOrders();
+                });
+                ordersBody.appendChild(pagEl);
+            }
+        } catch (err) {
+            console.error('Error loading delivered orders:', err);
+            ordersBody.replaceChildren();
+            const emptyOrders = ui.createEmptyState(t('empty_state_orders'));
+            ordersBody.appendChild(emptyOrders);
+        }
+    }
+
+    await Promise.all([loadDashboardSummary(), loadDeliveredOrders()]);
+}
+
+// ============================================================================
+// 2. MERCHANT SETTLEMENTS HISTORY TAB
+// ============================================================================
+
+export async function renderMerchantSettlements(container, apiClient) {
+    if (!container) return;
+    container.replaceChildren();
+
+    const state = {
+        pageNumber: 1,
+        pageSize: 15,
+        statusFilter: ''
+    };
+
+    const card = document.createElement('div');
+    card.id = 'section-settlements';
+    card.className = 'card';
+
+    const header = document.createElement('div');
+    header.className = 'card-header d-flex justify-between align-center flex-wrap gap-2';
+
+    const title = document.createElement('h3');
+    title.className = 'card-title';
+    title.textContent = `📑 ${t('merchant_section_settlements_title')}`;
+
+    const controls = document.createElement('div');
+    controls.className = 'd-flex align-center gap-2';
+
+    const statusSelect = document.createElement('select');
+    statusSelect.className = 'form-control form-select-sm';
+
+    const statusOptions = [
+        { val: '', label: t('filter_all_status') },
+        { val: '0', label: t('settlement_status_pending') },
+        { val: '1', label: t('settlement_status_completed') },
+        { val: '2', label: t('settlement_status_rejected') }
+    ];
+    statusOptions.forEach(opt => {
+        const option = document.createElement('option');
+        option.value = opt.val;
+        option.textContent = opt.label;
+        statusSelect.appendChild(option);
+    });
+
+    statusSelect.addEventListener('change', () => {
+        state.statusFilter = statusSelect.value;
+        state.pageNumber = 1;
+        loadSettlements();
+    });
+
+    const refreshBtn = document.createElement('button');
+    refreshBtn.className = 'btn btn-outline btn-sm';
+    refreshBtn.textContent = `🔄 ${t('btn_refresh')}`;
+    refreshBtn.addEventListener('click', () => loadSettlements());
+
+    controls.appendChild(statusSelect);
+    controls.appendChild(refreshBtn);
+
+    header.appendChild(title);
+    header.appendChild(controls);
+    card.appendChild(header);
+
+    const body = document.createElement('div');
+    body.className = 'card-body';
+    card.appendChild(body);
+    container.appendChild(card);
+
+    async function loadSettlements() {
+        body.replaceChildren();
+        const loader = document.createElement('div');
+        loader.className = 'loading-spinner p-4 text-center';
+        loader.textContent = t('loading');
+        body.appendChild(loader);
+
+        try {
+            const params = new URLSearchParams({
+                PageNumber: state.pageNumber,
+                PageSize: state.pageSize
+            });
+            if (state.statusFilter !== '') {
+                params.append('Status', state.statusFilter);
+            }
+
+            const res = await apiClient.fetch(`/api/v1/settlements/my-settlements?${params.toString()}`, {
+                method: 'GET'
+            });
+
+            body.replaceChildren();
+            const { items, totalCount, totalPages } = extractPaginatedItems(res);
+
+            if (!items.length) {
+                const empty = ui.createEmptyState(t('empty_state_settlements'));
+                body.appendChild(empty);
+                return;
+            }
+
+            const tableWrap = document.createElement('div');
+            tableWrap.className = 'table-responsive';
+
+            const table = document.createElement('table');
+            table.className = 'data-table financial-table';
+
+            const thead = document.createElement('thead');
+            const trHead = document.createElement('tr');
+            [
+                t('th_settlement_id'),
+                t('th_amount'),
+                t('th_status'),
+                t('th_notes'),
+                t('th_created_date'),
+                t('th_processed_date')
+            ].forEach(h => {
+                const th = document.createElement('th');
+                th.textContent = h;
                 trHead.appendChild(th);
             });
             thead.appendChild(trHead);
             table.appendChild(thead);
 
             const tbody = document.createElement('tbody');
-            ordersList.forEach((ord, idx) => {
+            items.forEach(item => {
                 const tr = document.createElement('tr');
 
-                const tdIndex = document.createElement('td');
-                tdIndex.textContent = String(idx + 1);
-                tr.appendChild(tdIndex);
-
                 const tdId = document.createElement('td');
-                tdId.appendChild(ui.createElementWithText('strong', `#${ord.orderId || ord.id || '-'}`));
+                tdId.className = 'fw-bold';
+                tdId.textContent = `#${item.id}`;
                 tr.appendChild(tdId);
 
-                const tdTotal = document.createElement('td');
-                tdTotal.textContent = formatCurrency(ord.totalPrice ?? 0);
-                tr.appendChild(tdTotal);
-
-                const tdComm = document.createElement('td');
-                tdComm.style.color = 'var(--color-danger, #EF4444)';
-                tdComm.textContent = `-${formatCurrency(ord.commission ?? 0)}`;
-                tr.appendChild(tdComm);
-
-                const tdNet = document.createElement('td');
-                tdNet.style.color = 'var(--color-success, #10B981)';
-                tdNet.style.fontWeight = 'bold';
-                tdNet.textContent = formatCurrency(ord.netEarnings ?? (ord.totalPrice - ord.commission) ?? 0);
-                tr.appendChild(tdNet);
+                const tdAmount = document.createElement('td');
+                tdAmount.className = 'fw-bold text-primary';
+                tdAmount.textContent = formatCurrency(item.amount);
+                tr.appendChild(tdAmount);
 
                 const tdStatus = document.createElement('td');
-                const badge = ui.createElement('span', ['badge', 'badge-success']);
-                badge.textContent = t('order_status_delivered');
+                const badge = document.createElement('span');
+                const st = Number(item.status);
+                if (st === 1) {
+                    badge.className = 'status-badge status-completed';
+                    badge.textContent = t('settlement_status_completed');
+                } else if (st === 2) {
+                    badge.className = 'status-badge status-rejected';
+                    badge.textContent = t('settlement_status_rejected');
+                } else {
+                    badge.className = 'status-badge status-pending';
+                    badge.textContent = t('settlement_status_pending');
+                }
                 tdStatus.appendChild(badge);
                 tr.appendChild(tdStatus);
 
+                const tdNotes = document.createElement('td');
+                tdNotes.textContent = item.notes || item.note || '-';
+                tr.appendChild(tdNotes);
+
+                const tdCreated = document.createElement('td');
+                tdCreated.textContent = formatDate(item.createdOn || item.createdDate || item.createdAt);
+                tr.appendChild(tdCreated);
+
+                const tdProcessed = document.createElement('td');
+                tdProcessed.textContent = formatDate(item.settledOn || item.processedDate || item.updatedOn);
+                tr.appendChild(tdProcessed);
+
+                tbody.appendChild(tr);
+            });
+
+            table.appendChild(tbody);
+            tableWrap.appendChild(table);
+            body.appendChild(tableWrap);
+
+            const calcPages = Math.ceil(totalCount / state.pageSize) || totalPages || 1;
+            if (calcPages > 1) {
+                const pag = createPaginationControls(state.pageNumber, calcPages, (p) => {
+                    state.pageNumber = p;
+                    loadSettlements();
+                });
+                body.appendChild(pag);
+            }
+        } catch (err) {
+            console.error('Error loading merchant settlements:', err);
+            body.replaceChildren();
+            const errEl = document.createElement('div');
+            errEl.className = 'error-state p-4 text-center';
+            errEl.textContent = t('network_error');
+            body.appendChild(errEl);
+        }
+    }
+
+    await loadSettlements();
+}
+
+// ============================================================================
+// 3. MERCHANT WALLET & TRANSACTIONS TAB
+// ============================================================================
+
+export async function renderMerchantWallet(container, apiClient) {
+    if (!container) return;
+    container.replaceChildren();
+
+    const state = {
+        pageNumber: 1,
+        pageSize: 15,
+        txTypeFilter: ''
+    };
+
+    const wrapper = document.createElement('div');
+    wrapper.id = 'section-wallet';
+    wrapper.className = 'wallet-section-wrapper';
+
+    // --- Wallet Balance Banner ---
+    const banner = document.createElement('div');
+    banner.className = 'card wallet-balance-banner mb-4';
+
+    const bannerContent = document.createElement('div');
+    bannerContent.className = 'd-flex justify-between align-center flex-wrap gap-3 p-4';
+
+    const leftCol = document.createElement('div');
+    const walletLabel = document.createElement('div');
+    walletLabel.className = 'text-muted mb-1';
+    walletLabel.textContent = t('merchant_kpi_wallet');
+
+    const walletValue = document.createElement('div');
+    walletValue.className = 'wallet-hero-amount';
+    walletValue.textContent = '...';
+
+    const walletUpdated = document.createElement('div');
+    walletUpdated.className = 'text-muted small mt-1';
+
+    leftCol.appendChild(walletLabel);
+    leftCol.appendChild(walletValue);
+    leftCol.appendChild(walletUpdated);
+
+    const refreshAllBtn = document.createElement('button');
+    refreshAllBtn.className = 'btn btn-primary';
+    refreshAllBtn.textContent = `🔄 ${t('btn_refresh')}`;
+    refreshAllBtn.addEventListener('click', () => {
+        loadWalletBalance();
+        loadTransactions();
+    });
+
+    bannerContent.appendChild(leftCol);
+    bannerContent.appendChild(refreshAllBtn);
+    banner.appendChild(bannerContent);
+    wrapper.appendChild(banner);
+
+    // --- Transactions Table Card ---
+    const txCard = document.createElement('div');
+    txCard.className = 'card';
+
+    const txHeader = document.createElement('div');
+    txHeader.className = 'card-header d-flex justify-between align-center flex-wrap gap-2';
+
+    const txTitle = document.createElement('h3');
+    txTitle.className = 'card-title';
+    txTitle.textContent = `💳 ${t('wallet_tx_history_title')}`;
+
+    const typeSelect = document.createElement('select');
+    typeSelect.className = 'form-control form-select-sm';
+    [
+        { val: '', label: t('filter_all_types') },
+        { val: '0', label: t('wallet_tx_deposit') },
+        { val: '1', label: t('wallet_tx_withdrawal') },
+        { val: '2', label: t('wallet_tx_transfer') },
+        { val: '3', label: t('wallet_tx_settlement') }
+    ].forEach(opt => {
+        const o = document.createElement('option');
+        o.value = opt.val;
+        o.textContent = opt.label;
+        typeSelect.appendChild(o);
+    });
+
+    typeSelect.addEventListener('change', () => {
+        state.txTypeFilter = typeSelect.value;
+        state.pageNumber = 1;
+        loadTransactions();
+    });
+
+    txHeader.appendChild(txTitle);
+    txHeader.appendChild(typeSelect);
+    txCard.appendChild(txHeader);
+
+    const txBody = document.createElement('div');
+    txBody.className = 'card-body';
+    txCard.appendChild(txBody);
+
+    wrapper.appendChild(txCard);
+    container.appendChild(wrapper);
+
+    async function loadWalletBalance() {
+        try {
+            const walletRes = await apiClient.fetch('/api/v1/wallets/user', { method: 'GET' });
+            const w = walletRes?.result || {};
+            const bal = w.availableBalance ?? w.balance ?? w.currentWalletBalance ?? 0;
+            walletValue.textContent = formatCurrency(bal);
+            const upd = w.updatedOn || w.updatedAt || w.createdOn;
+            if (upd) {
+                walletUpdated.textContent = `${t('th_last_updated')}: ${formatDate(upd)}`;
+            }
+        } catch (err) {
+            console.error('Error loading wallet balance:', err);
+            walletValue.textContent = formatCurrency(0);
+        }
+    }
+
+    async function loadTransactions() {
+        txBody.replaceChildren();
+        const loader = document.createElement('div');
+        loader.className = 'loading-spinner p-4 text-center';
+        loader.textContent = t('loading');
+        txBody.appendChild(loader);
+
+        try {
+            const params = new URLSearchParams({
+                PageNumber: state.pageNumber,
+                PageSize: state.pageSize
+            });
+            if (state.txTypeFilter !== '') {
+                params.append('Type', state.txTypeFilter);
+            }
+
+            const res = await apiClient.fetch(`/api/v1/wallets/user/transactions?${params.toString()}`, {
+                method: 'GET'
+            });
+
+            txBody.replaceChildren();
+            const { items, totalCount, totalPages } = extractPaginatedItems(res);
+
+            if (!items.length) {
+                const empty = ui.createEmptyState(t('empty_state_transactions'));
+                txBody.appendChild(empty);
+                return;
+            }
+
+            const tableWrap = document.createElement('div');
+            tableWrap.className = 'table-responsive';
+
+            const table = document.createElement('table');
+            table.className = 'data-table financial-table';
+
+            const thead = document.createElement('thead');
+            const trHead = document.createElement('tr');
+            [
+                t('th_transaction_id'),
+                t('th_type'),
+                t('th_amount'),
+                t('th_balance_after'),
+                t('th_description'),
+                t('th_date')
+            ].forEach(h => {
+                const th = document.createElement('th');
+                th.textContent = h;
+                trHead.appendChild(th);
+            });
+            thead.appendChild(trHead);
+            table.appendChild(thead);
+
+            const tbody = document.createElement('tbody');
+            const typeMap = {
+                0: { key: 'wallet_tx_deposit', cls: 'status-completed', sign: '+' },
+                1: { key: 'wallet_tx_withdrawal', cls: 'status-rejected', sign: '-' },
+                2: { key: 'wallet_tx_transfer', cls: 'status-completed', sign: '+' },
+                3: { key: 'wallet_tx_settlement', cls: 'status-pending', sign: '-' },
+                4: { key: 'wallet_tx_order_payment', cls: 'status-completed', sign: '+' },
+                5: { key: 'wallet_tx_settlement', cls: 'status-pending', sign: '-' },
+                6: { key: 'wallet_tx_refund', cls: 'status-rejected', sign: '-' }
+            };
+
+            items.forEach(tx => {
+                const tr = document.createElement('tr');
+
+                const tdId = document.createElement('td');
+                tdId.className = 'fw-bold';
+                tdId.textContent = `#${tx.id}`;
+                tr.appendChild(tdId);
+
+                const tInfo = typeMap[Number(tx.type)] || { key: 'wallet_tx_transfer', cls: 'status-pending', sign: '' };
+
+                const tdType = document.createElement('td');
+                const badge = document.createElement('span');
+                badge.className = `status-badge ${tInfo.cls}`;
+                badge.textContent = t(tInfo.key);
+                tdType.appendChild(badge);
+                tr.appendChild(tdType);
+
+                const tdAmount = document.createElement('td');
+                const isPositive = tInfo.sign === '+';
+                tdAmount.className = `fw-bold ${isPositive ? 'text-success' : 'text-danger'}`;
+                tdAmount.textContent = `${tInfo.sign} ${formatCurrency(Math.abs(Number(tx.amount) || 0))}`;
+                tr.appendChild(tdAmount);
+
+                const tdBal = document.createElement('td');
+                tdBal.textContent = formatCurrency(tx.newBalance ?? tx.balanceAfter ?? 0);
+                tr.appendChild(tdBal);
+
+                const tdDesc = document.createElement('td');
+                tdDesc.textContent = tx.reason || tx.description || tx.notes || tx.note || '-';
+                tr.appendChild(tdDesc);
+
                 const tdDate = document.createElement('td');
-                tdDate.textContent = formatDate(ord.createdAt || ord.createdOn || ord.createdDate);
+                tdDate.textContent = formatDate(tx.createdOn || tx.createdDate || tx.createdAt);
                 tr.appendChild(tdDate);
 
                 tbody.appendChild(tr);
             });
+
             table.appendChild(tbody);
             tableWrap.appendChild(table);
-            ordersCard.appendChild(tableWrap);
+            txBody.appendChild(tableWrap);
+
+            const calcPages = Math.ceil(totalCount / state.pageSize) || totalPages || 1;
+            if (calcPages > 1) {
+                const pag = createPaginationControls(state.pageNumber, calcPages, (p) => {
+                    state.pageNumber = p;
+                    loadTransactions();
+                });
+                txBody.appendChild(pag);
+            }
+        } catch (err) {
+            console.error('Error loading wallet transactions:', err);
+            txBody.replaceChildren();
+            const errEl = document.createElement('div');
+            errEl.className = 'error-state p-4 text-center';
+            errEl.textContent = t('network_error');
+            txBody.appendChild(errEl);
         }
-
-        dataContainer.appendChild(ordersCard);
-
-    } catch (err) {
-        dataContainer.replaceChildren();
-        const errCard = ui.createErrorState(err.message || t('network_error'), () => {
-            renderMerchantOverview(container, apiClient);
-        });
-        dataContainer.appendChild(errCard);
     }
+
+    await Promise.all([loadWalletBalance(), loadTransactions()]);
 }
 
-/* ==========================================================================
-   Tab: Merchant Settlements & Payouts (GET /api/v1/settlements/my-settlements)
-   ========================================================================== */
-export async function renderMerchantSettlements(container, apiClient, pageNumber = 1) {
-    container.replaceChildren();
+/**
+ * Reusable Pagination Controls
+ */
+function createPaginationControls(currentPage, totalPages, onPageChange) {
+    const nav = document.createElement('div');
+    nav.className = 'pagination-controls d-flex justify-center align-center gap-2 mt-3';
 
-    const rootWrapper = ui.createElement('div', ['merchant-settlements-view']);
-
-    // Filter Bar
-    const filterCard = ui.createElement('div', ['card', 'mb-4']);
-    filterCard.style.padding = '16px';
-    filterCard.style.display = 'flex';
-    filterCard.style.flexWrap = 'wrap';
-    filterCard.style.gap = '12px';
-    filterCard.style.alignItems = 'center';
-    filterCard.style.justifyContent = 'space-between';
-
-    const filterLeft = ui.createElement('div', ['filter-group']);
-    filterLeft.style.display = 'flex';
-    filterLeft.style.gap = '8px';
-    filterLeft.style.alignItems = 'center';
-    filterLeft.style.flexWrap = 'wrap';
-
-    const statusSelect = ui.createElement('select', ['form-control']);
-    statusSelect.style.width = 'auto';
-
-    const statusOpts = [
-        { val: '', text: t('filter_all_status') },
-        { val: '0', text: t('settlement_status_pending') },
-        { val: '1', text: t('settlement_status_completed') },
-        { val: '2', text: t('settlement_status_rejected') }
-    ];
-
-    statusOpts.forEach(opt => {
-        const o = document.createElement('option');
-        o.value = opt.val;
-        o.textContent = opt.text;
-        if (opt.val === currentSettlementStatus) o.selected = true;
-        statusSelect.appendChild(o);
+    const prevBtn = document.createElement('button');
+    prevBtn.className = 'btn btn-outline btn-sm';
+    prevBtn.disabled = currentPage <= 1;
+    prevBtn.textContent = t('btn_prev');
+    prevBtn.addEventListener('click', () => {
+        if (currentPage > 1) onPageChange(currentPage - 1);
     });
 
-    statusSelect.addEventListener('change', (e) => {
-        currentSettlementStatus = e.target.value;
-        renderMerchantSettlements(container, apiClient, 1);
+    const pageInfo = document.createElement('span');
+    pageInfo.className = 'pagination-info mx-2';
+    pageInfo.textContent = `${t('page')} ${currentPage} / ${totalPages}`;
+
+    const nextBtn = document.createElement('button');
+    nextBtn.className = 'btn btn-outline btn-sm';
+    nextBtn.disabled = currentPage >= totalPages;
+    nextBtn.textContent = t('btn_next');
+    nextBtn.addEventListener('click', () => {
+        if (currentPage < totalPages) onPageChange(currentPage + 1);
     });
 
-    filterLeft.appendChild(statusSelect);
-
-    const btnRefresh = ui.createElementWithText('button', '🔄 ' + t('btn_refresh'), ['btn', 'btn-outline-secondary', 'btn-sm']);
-    btnRefresh.addEventListener('click', () => {
-        renderMerchantSettlements(container, apiClient, pageNumber);
-    });
-    filterLeft.appendChild(btnRefresh);
-
-    filterCard.appendChild(filterLeft);
-    rootWrapper.appendChild(filterCard);
-
-    // Data Container
-    const dataContainer = ui.createElement('div', ['data-container']);
-    rootWrapper.appendChild(dataContainer);
-    container.appendChild(rootWrapper);
-
-    ui.renderShimmerList(dataContainer);
-
-    try {
-        let endpoint = `/api/v1/settlements/my-settlements?pageNumber=${pageNumber}&pageSize=15`;
-        if (currentSettlementStatus !== '') {
-            endpoint += `&status=${currentSettlementStatus}`;
-        }
-
-        const res = await apiClient.fetch(endpoint);
-        dataContainer.replaceChildren();
-
-        const items = res?.result?.items || [];
-        const totalCount = res?.result?.totalCount || items.length;
-        const totalPages = res?.result?.totalPages || 1;
-
-        if (items.length === 0) {
-            const empty = ui.createEmptyState(t('empty_state_settlements'));
-            dataContainer.appendChild(empty);
-            return;
-        }
-
-        const card = ui.createElement('div', ['card']);
-        card.style.padding = '20px';
-        card.style.borderRadius = '12px';
-        card.style.background = 'var(--color-card-bg, #ffffff)';
-        card.style.boxShadow = '0 2px 8px rgba(0,0,0,0.04)';
-
-        const tableWrap = ui.createElement('div', ['table-responsive']);
-        const table = ui.createElement('table', ['table', 'table-hover', 'align-middle']);
-
-        const thead = document.createElement('thead');
-        const trHead = document.createElement('tr');
-        [
-            '#',
-            t('th_settlement_id'),
-            t('th_amount'),
-            t('th_status'),
-            t('th_notes'),
-            t('th_created_date'),
-            t('th_processed_date')
-        ].forEach(hText => {
-            const th = document.createElement('th');
-            th.textContent = hText;
-            trHead.appendChild(th);
-        });
-        thead.appendChild(trHead);
-        table.appendChild(thead);
-
-        const tbody = document.createElement('tbody');
-        items.forEach((item, idx) => {
-            const tr = document.createElement('tr');
-
-            const tdIndex = document.createElement('td');
-            tdIndex.textContent = String((pageNumber - 1) * 15 + idx + 1);
-            tr.appendChild(tdIndex);
-
-            const tdId = document.createElement('td');
-            tdId.appendChild(ui.createElementWithText('strong', `#${item.id}`));
-            tr.appendChild(tdId);
-
-            const tdAmt = document.createElement('td');
-            tdAmt.style.fontWeight = 'bold';
-            tdAmt.style.color = 'var(--color-success, #10B981)';
-            tdAmt.textContent = formatCurrency(item.amount);
-            tr.appendChild(tdAmt);
-
-            const tdStatus = document.createElement('td');
-            tdStatus.appendChild(getSettlementStatusBadge(item.status));
-            tr.appendChild(tdStatus);
-
-            const tdNotes = document.createElement('td');
-            tdNotes.textContent = item.notes || '-';
-            tr.appendChild(tdNotes);
-
-            const tdCreated = document.createElement('td');
-            tdCreated.textContent = formatDate(item.createdDate);
-            tr.appendChild(tdCreated);
-
-            const tdProcessed = document.createElement('td');
-            tdProcessed.textContent = formatDate(item.processedDate);
-            tr.appendChild(tdProcessed);
-
-            tbody.appendChild(tr);
-        });
-        table.appendChild(tbody);
-        tableWrap.appendChild(table);
-        card.appendChild(tableWrap);
-
-        // Pagination Bar
-        if (totalPages > 1) {
-            const paginationBar = ui.createElement('div', ['pagination-bar', 'mt-3']);
-            paginationBar.style.display = 'flex';
-            paginationBar.style.justifyContent = 'space-between';
-            paginationBar.style.alignItems = 'center';
-
-            const info = ui.createElementWithText('span', `${t('page')} ${pageNumber} / ${totalPages} (${totalCount} ${t('th_records')})`, ['text-muted', 'small']);
-            paginationBar.appendChild(info);
-
-            const btnGroup = ui.createElement('div', ['btn-group']);
-            if (pageNumber > 1) {
-                const btnPrev = ui.createElementWithText('button', t('btn_prev'), ['btn', 'btn-outline-primary', 'btn-sm']);
-                btnPrev.addEventListener('click', () => renderMerchantSettlements(container, apiClient, pageNumber - 1));
-                btnGroup.appendChild(btnPrev);
-            }
-            if (pageNumber < totalPages) {
-                const btnNext = ui.createElementWithText('button', t('btn_next'), ['btn', 'btn-outline-primary', 'btn-sm']);
-                btnNext.addEventListener('click', () => renderMerchantSettlements(container, apiClient, pageNumber + 1));
-                btnGroup.appendChild(btnNext);
-            }
-            paginationBar.appendChild(btnGroup);
-            card.appendChild(paginationBar);
-        }
-
-        dataContainer.appendChild(card);
-
-    } catch (err) {
-        dataContainer.replaceChildren();
-        const errCard = ui.createErrorState(err.message || t('network_error'), () => {
-            renderMerchantSettlements(container, apiClient, pageNumber);
-        });
-        dataContainer.appendChild(errCard);
-    }
-}
-
-/* ==========================================================================
-   Tab: Merchant Digital Wallet (GET /api/v1/wallets/user & transactions)
-   ========================================================================== */
-export async function renderMerchantWallet(container, apiClient, pageNumber = 1) {
-    container.replaceChildren();
-
-    const rootWrapper = ui.createElement('div', ['merchant-wallet-view']);
-
-    // Wallet Balance Card
-    const walletHeaderCard = ui.createElement('div', ['card', 'mb-4']);
-    walletHeaderCard.style.padding = '24px';
-    walletHeaderCard.style.borderRadius = '16px';
-    walletHeaderCard.style.background = 'linear-gradient(135deg, var(--color-primary, #00796B) 0%, #004D40 100%)';
-    walletHeaderCard.style.color = '#ffffff';
-    walletHeaderCard.style.boxShadow = '0 4px 16px rgba(0, 77, 64, 0.2)';
-    walletHeaderCard.style.display = 'flex';
-    walletHeaderCard.style.justifyContent = 'space-between';
-    walletHeaderCard.style.alignItems = 'center';
-    walletHeaderCard.style.flexWrap = 'wrap';
-    walletHeaderCard.style.gap = '16px';
-
-    const balInfo = ui.createElement('div', ['bal-info']);
-    const balTitle = ui.createElementWithText('div', t('merchant_menu_wallet'), ['text-uppercase']);
-    balTitle.style.fontSize = '0.85rem';
-    balTitle.style.opacity = '0.85';
-    balTitle.style.letterSpacing = '1px';
-    balTitle.style.marginBottom = '6px';
-    balInfo.appendChild(balTitle);
-
-    const balAmount = ui.createElementWithText('div', '...', ['balance-amount']);
-    balAmount.style.fontSize = '2.2rem';
-    balAmount.style.fontWeight = '800';
-    balInfo.appendChild(balAmount);
-
-    const balUpdated = ui.createElementWithText('div', '', ['balance-updated']);
-    balUpdated.style.fontSize = '0.8rem';
-    balUpdated.style.opacity = '0.7';
-    balUpdated.style.marginTop = '4px';
-    balInfo.appendChild(balUpdated);
-
-    walletHeaderCard.appendChild(balInfo);
-
-    const walletIcon = ui.createElementWithText('div', '👛', ['wallet-big-icon']);
-    walletIcon.style.fontSize = '3.5rem';
-    walletIcon.style.opacity = '0.4';
-    walletHeaderCard.appendChild(walletIcon);
-
-    rootWrapper.appendChild(walletHeaderCard);
-
-    // Fetch user wallet balance
-    apiClient.fetch('/api/v1/wallets/user').then(res => {
-        if (res && res.success && res.result) {
-            const w = res.result;
-            balAmount.textContent = formatCurrency(w.balance);
-            if (w.updatedAt) {
-                balUpdated.textContent = `${t('th_last_updated')}: ${formatDate(w.updatedAt)}`;
-            }
-        } else {
-            balAmount.textContent = formatCurrency(0);
-        }
-    }).catch(() => {
-        balAmount.textContent = formatCurrency(0);
-    });
-
-    // Transactions Section
-    const txCard = ui.createElement('div', ['card']);
-    txCard.style.padding = '20px';
-    txCard.style.borderRadius = '12px';
-    txCard.style.background = 'var(--color-card-bg, #ffffff)';
-    txCard.style.boxShadow = '0 2px 8px rgba(0,0,0,0.04)';
-
-    const txHeader = ui.createElement('div', ['card-header', 'mb-3']);
-    txHeader.style.display = 'flex';
-    txHeader.style.justifyContent = 'space-between';
-    txHeader.style.alignItems = 'center';
-    txHeader.style.flexWrap = 'wrap';
-    txHeader.style.gap = '10px';
-
-    const txTitle = ui.createElementWithText('h3', t('wallet_tx_history_title'), ['h5', 'm-0']);
-    txHeader.appendChild(txTitle);
-
-    const txFilterGroup = ui.createElement('div', ['filter-group']);
-    txFilterGroup.style.display = 'flex';
-    txFilterGroup.style.gap = '8px';
-    txFilterGroup.style.alignItems = 'center';
-
-    const typeSelect = ui.createElement('select', ['form-control']);
-    typeSelect.style.width = 'auto';
-
-    const typeOpts = [
-        { val: '', text: t('filter_all_types') },
-        { val: '0', text: t('wallet_tx_deposit') },
-        { val: '1', text: t('wallet_tx_withdrawal') },
-        { val: '3', text: t('wallet_tx_commission') },
-        { val: '4', text: t('wallet_tx_order_payment') },
-        { val: '5', text: t('wallet_tx_settlement') },
-        { val: '6', text: t('wallet_tx_refund') }
-    ];
-
-    typeOpts.forEach(opt => {
-        const o = document.createElement('option');
-        o.value = opt.val;
-        o.textContent = opt.text;
-        if (opt.val === currentWalletType) o.selected = true;
-        typeSelect.appendChild(o);
-    });
-
-    typeSelect.addEventListener('change', (e) => {
-        currentWalletType = e.target.value;
-        renderMerchantWallet(container, apiClient, 1);
-    });
-
-    txFilterGroup.appendChild(typeSelect);
-    txHeader.appendChild(txFilterGroup);
-    txCard.appendChild(txHeader);
-
-    const txDataContainer = ui.createElement('div', ['tx-data-container']);
-    txCard.appendChild(txDataContainer);
-    rootWrapper.appendChild(txCard);
-    container.appendChild(rootWrapper);
-
-    ui.renderShimmerList(txDataContainer);
-
-    try {
-        let endpoint = `/api/v1/wallets/user/transactions?pageNumber=${pageNumber}&pageSize=15`;
-        if (currentWalletType !== '') {
-            endpoint += `&type=${currentWalletType}`;
-        }
-
-        const res = await apiClient.fetch(endpoint);
-        txDataContainer.replaceChildren();
-
-        const items = res?.result?.items || [];
-        const totalCount = res?.result?.totalCount || items.length;
-        const totalPages = res?.result?.totalPages || 1;
-
-        if (items.length === 0) {
-            const empty = ui.createEmptyState(t('empty_state_transactions'));
-            txDataContainer.appendChild(empty);
-            return;
-        }
-
-        const tableWrap = ui.createElement('div', ['table-responsive']);
-        const table = ui.createElement('table', ['table', 'table-hover', 'align-middle']);
-
-        const thead = document.createElement('thead');
-        const trHead = document.createElement('tr');
-        [
-            '#',
-            t('th_transaction_id'),
-            t('th_type'),
-            t('th_amount'),
-            t('th_balance_after'),
-            t('th_description'),
-            t('th_date')
-        ].forEach(hText => {
-            const th = document.createElement('th');
-            th.textContent = hText;
-            trHead.appendChild(th);
-        });
-        thead.appendChild(trHead);
-        table.appendChild(thead);
-
-        const tbody = document.createElement('tbody');
-        items.forEach((tx, idx) => {
-            const tr = document.createElement('tr');
-
-            const tdIndex = document.createElement('td');
-            tdIndex.textContent = String((pageNumber - 1) * 15 + idx + 1);
-            tr.appendChild(tdIndex);
-
-            const tdId = document.createElement('td');
-            tdId.appendChild(ui.createElementWithText('strong', `#${tx.id}`));
-            tr.appendChild(tdId);
-
-            const tdType = document.createElement('td');
-            tdType.appendChild(getTxTypeBadge(tx.type));
-            tr.appendChild(tdType);
-
-            const tdAmt = document.createElement('td');
-            tdAmt.style.fontWeight = 'bold';
-            const isNegative = Number(tx.type) === 1 || Number(tx.type) === 3; // Withdrawal or Commission
-            tdAmt.style.color = isNegative ? 'var(--color-danger, #EF4444)' : 'var(--color-success, #10B981)';
-            tdAmt.textContent = (isNegative ? '-' : '+') + formatCurrency(tx.amount);
-            tr.appendChild(tdAmt);
-
-            const tdBal = document.createElement('td');
-            tdBal.textContent = formatCurrency(tx.balanceAfter);
-            tr.appendChild(tdBal);
-
-            const tdDesc = document.createElement('td');
-            tdDesc.textContent = tx.description || '-';
-            tr.appendChild(tdDesc);
-
-            const tdDate = document.createElement('td');
-            tdDate.textContent = formatDate(tx.createdAt || tx.createdOn);
-            tr.appendChild(tdDate);
-
-            tbody.appendChild(tr);
-        });
-        table.appendChild(tbody);
-        tableWrap.appendChild(table);
-        txDataContainer.appendChild(tableWrap);
-
-        // Pagination
-        if (totalPages > 1) {
-            const paginationBar = ui.createElement('div', ['pagination-bar', 'mt-3']);
-            paginationBar.style.display = 'flex';
-            paginationBar.style.justifyContent = 'space-between';
-            paginationBar.style.alignItems = 'center';
-
-            const info = ui.createElementWithText('span', `${t('page')} ${pageNumber} / ${totalPages} (${totalCount} ${t('th_records')})`, ['text-muted', 'small']);
-            paginationBar.appendChild(info);
-
-            const btnGroup = ui.createElement('div', ['btn-group']);
-            if (pageNumber > 1) {
-                const btnPrev = ui.createElementWithText('button', t('btn_prev'), ['btn', 'btn-outline-primary', 'btn-sm']);
-                btnPrev.addEventListener('click', () => renderMerchantWallet(container, apiClient, pageNumber - 1));
-                btnGroup.appendChild(btnPrev);
-            }
-            if (pageNumber < totalPages) {
-                const btnNext = ui.createElementWithText('button', t('btn_next'), ['btn', 'btn-outline-primary', 'btn-sm']);
-                btnNext.addEventListener('click', () => renderMerchantWallet(container, apiClient, pageNumber + 1));
-                btnGroup.appendChild(btnNext);
-            }
-            paginationBar.appendChild(btnGroup);
-            txDataContainer.appendChild(paginationBar);
-        }
-
-    } catch (err) {
-        txDataContainer.replaceChildren();
-        const errCard = ui.createErrorState(err.message || t('network_error'), () => {
-            renderMerchantWallet(container, apiClient, pageNumber);
-        });
-        txDataContainer.appendChild(errCard);
-    }
+    nav.appendChild(prevBtn);
+    nav.appendChild(pageInfo);
+    nav.appendChild(nextBtn);
+
+    return nav;
 }
