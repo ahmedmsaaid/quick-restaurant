@@ -1422,31 +1422,7 @@ export function initMobileSidebar() {
 /**
  * Mobile Bottom Navigation Bar Controller
  */
-export function initMobileBottomNav() {
-    window.addEventListener('click', (e) => {
-        const item = e.target.closest('.mobile-nav-item');
-        if (!item) return;
-
-        const targetTab = item.dataset.tab;
-        if (!targetTab) return;
-
-        // Update active class on mobile bottom nav
-        const navContainer = item.closest('.mobile-bottom-nav');
-        if (navContainer) {
-            navContainer.querySelectorAll('.mobile-nav-item').forEach(btn => btn.classList.remove('active'));
-            item.classList.add('active');
-        }
-
-        // Trigger corresponding sidebar link
-        const targetBtn = document.querySelector(`.sidebar-link[data-tab="${targetTab}"]`) ||
-            document.querySelector(`#rest-menu-${targetTab}`) ||
-            document.querySelector(`#mkt-menu-${targetTab}`) ||
-            document.querySelector(`#sa-menu-${targetTab}`);
-        if (targetBtn) {
-            targetBtn.click();
-        }
-    });
-}
+export function initMobileBottomNav() {}
 
 // Global unhandled exception boundaries to prevent UI freezes
 if (typeof window !== 'undefined') {
@@ -1461,17 +1437,17 @@ if (typeof window !== 'undefined') {
 // Auto-run theme, mobile drawer and bottom nav initialization immediately
 if (typeof document !== 'undefined') {
     initTheme();
-    initMobileBottomNav();
+    
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => {
             initTheme();
             initMobileSidebar();
-            initMobileBottomNav();
+            
         });
     } else {
         initTheme();
         initMobileSidebar();
-        initMobileBottomNav();
+        
     }
 }
 
