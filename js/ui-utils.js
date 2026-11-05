@@ -243,7 +243,7 @@ export function printOrderReceipt(order = {}, options = {}) {
         <div class="receipt-print-ticket" style="font-family: 'Cairo', monospace, sans-serif; font-size: ${paperSize === '58mm' ? '10px' : '11px'}; color: #000000; direction: rtl; text-align: right; width: 100%; box-sizing: border-box; padding: 4px; page-break-inside: avoid;">
             <div style="text-align: center; margin-bottom: 6px;">
                 <div style="font-weight: 900; font-size: 14px; letter-spacing: 0.5px;">⚡ Quick Delivery ⚡</div>
-                <div style="font-size: 10px; font-weight: 700; color: #444;">كويك لخدمات التوصيل السريع</div>
+                <div style="font-size: 10px; font-weight: 700; color: #444;">${isAr ? 'كويك لخدمات التوصيل السريع' : 'Quick Express Delivery Services'}</div>
                 <div style="font-size: 13px; font-weight: 800; margin-top: 4px; border: 1px solid #000; padding: 2px 6px; display: inline-block; border-radius: 4px;">${storeName}</div>
             </div>
             
