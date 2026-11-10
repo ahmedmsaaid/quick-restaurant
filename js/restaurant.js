@@ -2903,14 +2903,28 @@ function renderDiscountsTab(parent) {
         discounts.forEach(disc => {
             const card = ui.createElement('div', ['summary-card'], { style: 'display: flex; flex-direction: column; justify-content: space-between; min-height: 220px; position: relative;' });
 
-            // Header: Name and Delete button
+            // Header: Name (with copy) + Edit & Delete buttons
             const header = ui.createElement('div', [], { style: 'display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; width: 100%;' });
-            const name = ui.createElementWithText('strong', disc.name || '-', [], { style: 'font-size: 1.1rem; font-weight: 700; color: var(--text-primary); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;' });
+            const nameBadge = ui.createElement('div', [], {
+                style: 'display: inline-flex; align-items: center; gap: 0.35rem; font-size: 1.05rem; font-weight: 800; color: var(--rest-color); background: rgba(255, 107, 53, 0.1); border: 1px dashed rgba(255, 107, 53, 0.45); padding: 0.25rem 0.65rem; border-radius: 8px; cursor: pointer; max-width: 70%; overflow: hidden;',
+                title: getLanguage() === 'ar' ? 'اضغط لنسخ الكود' : 'Click to copy code'
+            });
+            nameBadge.innerHTML = `<span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">🎟️ ${disc.name || '-'}</span> <span style="font-size:0.75rem;">📋</span>`;
+            nameBadge.addEventListener('click', () => {
+                navigator.clipboard.writeText(disc.name || '');
+                ui.showToast(getLanguage() === 'ar' ? `تم نسخ الكود: ${disc.name}` : `Copied code: ${disc.name}`, 'success');
+            });
+
+            const btnGroup = ui.createElement('div', [], { style: 'display: flex; gap: 0.35rem; flex-shrink: 0;' });
+            const editBtn = ui.createElementWithText('button', '✏️', ['btn', 'btn-secondary', 'btn-sm'], { style: 'padding: 0.25rem 0.5rem; font-size: 0.85rem; border-radius: 4px;' });
+            editBtn.addEventListener('click', () => showAddDiscountModal(disc));
             const deleteBtn = ui.createElementWithText('button', '🗑️', ['btn', 'btn-danger', 'btn-sm'], { style: 'padding: 0.25rem 0.5rem; font-size: 0.85rem; border-radius: 4px;' });
             deleteBtn.addEventListener('click', () => handleDeleteDiscount(disc));
+            btnGroup.appendChild(editBtn);
+            btnGroup.appendChild(deleteBtn);
 
-            header.appendChild(name);
-            header.appendChild(deleteBtn);
+            header.appendChild(nameBadge);
+            header.appendChild(btnGroup);
             card.appendChild(header);
 
             // Description
@@ -2946,32 +2960,43 @@ function renderDiscountsTab(parent) {
     parent.appendChild(wrapper);
 }
 
-function showAddDiscountModal() {
+function showAddDiscountModal(existingDisc = null) {
+    const isEdit = !!existingDisc;
+    const toLocalInput = (iso) => {
+        if (!iso) return '';
+        try {
+            const d = new Date(iso);
+            if (isNaN(d.getTime())) return '';
+            const pad = (n) => String(n).padStart(2, '0');
+            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        } catch (_) { return ''; }
+    };
+
     const form = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 1rem; min-width: 320px;' });
 
     const nameWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem;' });
     nameWrap.appendChild(ui.createElementWithText('label', t('rest_discount_modal_name'), [], { style: 'font-weight: 600; font-size: 0.85rem;' }));
-    const nameIn = ui.createElement('input', ['search-input'], { type: 'text', placeholder: getLanguage() === 'ar' ? 'مثال: خصم الصيف' : 'e.g. Summer Discount' });
+    const nameIn = ui.createElement('input', ['search-input'], { type: 'text', value: existingDisc?.name || '', placeholder: getLanguage() === 'ar' ? 'مثال: خصم الصيف / SUMMER15' : 'e.g. Summer Discount / SUMMER15' });
     nameWrap.appendChild(nameIn);
 
     const descWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem;' });
     descWrap.appendChild(ui.createElementWithText('label', t('rest_discount_modal_desc'), [], { style: 'font-weight: 600; font-size: 0.85rem;' }));
-    const descIn = ui.createElement('input', ['search-input'], { type: 'text', placeholder: getLanguage() === 'ar' ? 'وصف الخصم...' : 'Discount description...' });
+    const descIn = ui.createElement('input', ['search-input'], { type: 'text', value: existingDisc?.description || '', placeholder: getLanguage() === 'ar' ? 'وصف الخصم...' : 'Discount description...' });
     descWrap.appendChild(descIn);
 
     const pctWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem;' });
     pctWrap.appendChild(ui.createElementWithText('label', t('rest_discount_modal_percentage'), [], { style: 'font-weight: 600; font-size: 0.85rem;' }));
-    const pctIn = ui.createElement('input', ['search-input'], { type: 'number', min: '1', max: '100', placeholder: '15' });
+    const pctIn = ui.createElement('input', ['search-input'], { type: 'number', min: '1', max: '100', value: existingDisc?.percentage ?? '', placeholder: '15' });
     pctWrap.appendChild(pctIn);
 
     const startWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem;' });
     startWrap.appendChild(ui.createElementWithText('label', t('rest_discount_modal_start'), [], { style: 'font-weight: 600; font-size: 0.85rem;' }));
-    const startIn = ui.createElement('input', ['search-input'], { type: 'datetime-local' });
+    const startIn = ui.createElement('input', ['search-input'], { type: 'datetime-local', value: toLocalInput(existingDisc?.startDate) });
     startWrap.appendChild(startIn);
 
     const endWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem;' });
     endWrap.appendChild(ui.createElementWithText('label', t('rest_discount_modal_end'), [], { style: 'font-weight: 600; font-size: 0.85rem;' }));
-    const endIn = ui.createElement('input', ['search-input'], { type: 'datetime-local' });
+    const endIn = ui.createElement('input', ['search-input'], { type: 'datetime-local', value: toLocalInput(existingDisc?.endDate) });
     endWrap.appendChild(endIn);
 
     form.appendChild(nameWrap);
@@ -2980,7 +3005,7 @@ function showAddDiscountModal() {
     form.appendChild(startWrap);
     form.appendChild(endWrap);
 
-    ui.showModal(t('rest_discount_modal_add_title'), form, [
+    ui.showModal(isEdit ? (getLanguage() === 'ar' ? '✏️ تعديل الخصم / الكود' : '✏️ Edit Discount') : t('rest_discount_modal_add_title'), form, [
         {
             text: t('rest_discount_modal_save'),
             type: 'success',
@@ -2988,7 +3013,7 @@ function showAddDiscountModal() {
             onClick: async () => {
                 const name = nameIn.value.trim();
                 const pctVal = pctIn.value.trim();
-                const description = descIn.value.trim();
+                const description = descIn.value.trim() || name;
                 const startDateVal = startIn.value;
                 const endDateVal = endIn.value;
 
@@ -3009,8 +3034,32 @@ function showAddDiscountModal() {
 
                 if (!isValid) return;
 
-                const startDate = startDateVal ? new Date(startDateVal).toISOString() : null;
-                const endDate = endDateVal ? new Date(endDateVal).toISOString() : null;
+                const startDate = startDateVal ? new Date(startDateVal).toISOString() : new Date().toISOString();
+                const endDate = endDateVal ? new Date(endDateVal).toISOString() : new Date(Date.now() + 7 * 86400000).toISOString();
+
+                if (isEdit) {
+                    ui.closeModal();
+                    try {
+                        await apiFetch('/api/v1/discounts', {
+                            method: 'PUT',
+                            body: JSON.stringify({
+                                id: existingDisc.id,
+                                name,
+                                description,
+                                percentage,
+                                type: 0,
+                                startDate,
+                                endDate
+                            })
+                        });
+                        ui.showToast(getLanguage() === 'ar' ? 'تم تعديل الخصم بنجاح' : 'Discount updated successfully', 'success');
+                        await refreshDiscounts();
+                        if (activeTab === 'discounts') renderActiveTab();
+                    } catch (err) {
+                        ui.showToast((getLanguage() === 'ar' ? 'فشل تعديل الخصم: ' : 'Failed to update discount: ') + err.message, 'error');
+                    }
+                    return;
+                }
 
                 const tempId = 'temp-' + Date.now();
                 const newDisc = {
