@@ -2989,14 +2989,17 @@ function showAddDiscountModal(existingDisc = null) {
     const pctIn = ui.createElement('input', ['search-input'], { type: 'number', min: '1', max: '100', value: existingDisc?.percentage ?? '', placeholder: '15' });
     pctWrap.appendChild(pctIn);
 
+    const defaultStartIso = existingDisc?.startDate || new Date().toISOString();
+    const defaultEndIso = existingDisc?.endDate || new Date(Date.now() + 7 * 86400000).toISOString();
+
     const startWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem;' });
     startWrap.appendChild(ui.createElementWithText('label', t('rest_discount_modal_start'), [], { style: 'font-weight: 600; font-size: 0.85rem;' }));
-    const startIn = ui.createElement('input', ['search-input'], { type: 'datetime-local', value: toLocalInput(existingDisc?.startDate) });
+    const startIn = ui.createElement('input', ['search-input'], { type: 'datetime-local', value: toLocalInput(defaultStartIso) });
     startWrap.appendChild(startIn);
 
     const endWrap = ui.createElement('div', [], { style: 'display: flex; flex-direction: column; gap: 0.35rem;' });
     endWrap.appendChild(ui.createElementWithText('label', t('rest_discount_modal_end'), [], { style: 'font-weight: 600; font-size: 0.85rem;' }));
-    const endIn = ui.createElement('input', ['search-input'], { type: 'datetime-local', value: toLocalInput(existingDisc?.endDate) });
+    const endIn = ui.createElement('input', ['search-input'], { type: 'datetime-local', value: toLocalInput(defaultEndIso) });
     endWrap.appendChild(endIn);
 
     form.appendChild(nameWrap);
