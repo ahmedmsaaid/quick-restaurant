@@ -536,20 +536,31 @@ async function refreshOrders() {
                         productId: p.productId
                     };
                 });
+                const notesStr = ord.notes || ord.note || ord.Notes || ord.Note || ord.description || ord.customerNotes || '';
+                const promoMatch = notesStr.match(/\[Promo:[^\]]*-(\d+(?:\.\d+)?)%\]/);
+                const promoPct = promoMatch ? parseFloat(promoMatch[1]) : 0;
+                const hasPromo = promoPct > 0;
+                const rawItemsTotal = ord.totalPrice - (ord.deliveryFee || 0) - (ord.orderFee || 0);
+                const effectiveItemsTotal = hasPromo ? (rawItemsTotal * (1 - promoPct / 100)) : rawItemsTotal;
+                const effectiveFinalTotal = hasPromo ? (ord.totalPrice * (1 - promoPct / 100)) : ord.totalPrice;
+
                 return {
                     id: ord.id.toString(),
                     vendorId: myRestaurantId ? myRestaurantId.toString() : '',
                     status: mapBackendStatusToLocal(ord.status),
                     items: items,
-                    totalPrice: ord.totalPrice - (ord.deliveryFee || 0) - (ord.orderFee || 0),
+                    originalPrice: rawItemsTotal,
+                    totalPrice: effectiveItemsTotal,
                     deliveryFee: ord.deliveryFee || 0,
                     orderFee: parseFloat(ord.orderFee || (ord.rawOrder && ord.rawOrder.orderFee) || 0),
                     commission: parseFloat(ord.commission || (ord.rawOrder && ord.rawOrder.commission) || ord.orderFee || (ord.rawOrder && ord.rawOrder.orderFee) || 0),
                     netEarnings: parseFloat(ord.netEarnings || (ord.rawOrder && ord.rawOrder.netEarnings) || 0),
                     type: 0,
-                    finalTotal: ord.totalPrice,
+                    hasPromo,
+                    promoPct,
+                    finalTotal: effectiveFinalTotal,
                     paymentMethod: ord.paymentMethod || (ord.rawOrder && ord.rawOrder.paymentMethod) || 0,
-                    notes: ord.notes || ord.note || ord.Notes || ord.Note || ord.description || ord.customerNotes || '',
+                    notes: notesStr,
                     customerName: ord.creator ? ord.creator.name : (ord.user && ord.user.role === 2 ? ord.user.name : (getLanguage() === 'ar' ? 'عميل' : 'Customer')),
                     customerPhone: ord.creator ? ord.creator.phone : (ord.user && ord.user.role === 2 ? ord.user.phone : ''),
                     createdAt: ord.createdAt || ord.createdOn,
@@ -1353,7 +1364,13 @@ function renderProgressTab(parent) {
                 const cardHeader = ui.createElement('div', ['kanban-card-header']);
                 const ordHeader = isAr ? `طلب #${ord.id}` : `Order #${ord.id}`;
                 cardHeader.appendChild(ui.createElementWithText('span', ordHeader));
-                cardHeader.appendChild(ui.createElementWithText('span', `${ord.totalPrice.toFixed(2)} ${currText}`, [], { style: 'color: var(--color-success); font-weight: 800;' }));
+                const priceSpan = ui.createElement('span', [], { style: 'color: var(--color-success); font-weight: 800;' });
+                if (ord.hasPromo) {
+                    priceSpan.innerHTML = `<span style="text-decoration: line-through; color: var(--text-muted); font-size: 0.75rem; margin-inline-end: 0.35rem;">${ord.originalPrice.toFixed(2)}</span><span>${ord.totalPrice.toFixed(2)} ${currText}</span>`;
+                } else {
+                    priceSpan.textContent = `${ord.totalPrice.toFixed(2)} ${currText}`;
+                }
+                cardHeader.appendChild(priceSpan);
                 card.appendChild(cardHeader);
 
                 // Customer Name
