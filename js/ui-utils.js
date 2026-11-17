@@ -225,8 +225,11 @@ export function printOrderReceipt(order = {}, options = {}) {
     const deliveryFee = parseFloat(order.deliveryFee || (order.rawOrder && order.rawOrder.deliveryFee) || 0);
     const finalTotal = parseFloat(order.finalTotal || order.totalPrice || (order.rawOrder && order.rawOrder.totalPrice) || (subtotal + deliveryFee) || 0);
 
-    const isOnline = (order.rawOrder && order.rawOrder.paymentMethod === 1) || order.paymentMethod === 1 || String(order.paymentMethod).toLowerCase().includes('online');
-    const paymentMethodText = isOnline ? (isAr ? 'دفع إلكتروني' : 'Online Payment') : (isAr ? 'كاش عند الاستلام' : 'Cash on Delivery');
+    const pm = Number((order.rawOrder && order.rawOrder.paymentMethod !== undefined ? order.rawOrder.paymentMethod : order.paymentMethod) || 0);
+    const isWallet = pm === 2 || String(order.paymentMethod).toLowerCase().includes('wallet');
+    const isVisa = pm === 1 || String(order.paymentMethod).toLowerCase().includes('online') || String(order.paymentMethod).toLowerCase().includes('visa');
+    const isOnline = isVisa || isWallet;
+    const paymentMethodText = isWallet ? (isAr ? 'محفظة إلكترونية' : 'Digital Wallet') : (isVisa ? (isAr ? 'دفع إلكتروني' : 'Online Payment') : (isAr ? 'كاش عند الاستلام' : 'Cash on Delivery'));
     const paymentStatusBadge = isOnline ? (isAr ? '[مدفوع]' : '[PAID]') : (isAr ? '[غير مدفوع]' : '[UNPAID]');
     const notes = (order.notes || order.note || (order.rawOrder && (order.rawOrder.notes || order.rawOrder.note)) || '').trim();
 
@@ -572,9 +575,13 @@ export function showOrderReceiptModal(order) {
     paper.appendChild(totalBox);
 
     // Payment Info
-    const isOnline = (order.rawOrder && order.rawOrder.paymentMethod === 1) || order.paymentMethod === 1 || String(order.paymentMethod).toLowerCase().includes('online');
+    const pm = Number((order.rawOrder && order.rawOrder.paymentMethod !== undefined ? order.rawOrder.paymentMethod : order.paymentMethod) || 0);
+    const isWallet = pm === 2 || String(order.paymentMethod).toLowerCase().includes('wallet');
+    const isVisa = pm === 1 || String(order.paymentMethod).toLowerCase().includes('online') || String(order.paymentMethod).toLowerCase().includes('visa');
+    const isOnline = isVisa || isWallet;
+    const payLabel = isWallet ? (isAr ? 'محفظة إلكترونية' : 'Wallet') : (isVisa ? (isAr ? 'دفع إلكتروني' : 'Online') : (isAr ? 'كاش عند الاستلام' : 'Cash on Delivery'));
     const payRow = createElement('div', ['receipt-meta-row']);
-    payRow.appendChild(createElementWithText('span', `${isAr ? 'وسيلة الدفع:' : 'Payment:'} ${isOnline ? (isAr ? 'دفع إلكتروني' : 'Online') : (isAr ? 'كاش عند الاستلام' : 'Cash on Delivery')}`));
+    payRow.appendChild(createElementWithText('span', `${isAr ? 'وسيلة الدفع:' : 'Payment:'} ${payLabel}`));
     payRow.appendChild(createElementWithText('span', isOnline ? (isAr ? '[مدفوع]' : '[PAID]') : (isAr ? '[غير مدفوع]' : '[UNPAID]'), ['receipt-badge-pill'], {
         style: isOnline ? 'background: #dcfce7; color: #15803d; font-weight: 800;' : 'background: #fef3c7; color: #b45309; font-weight: 800;'
     }));
@@ -1748,11 +1755,16 @@ export function renderOrderView(order, options = {}) {
 
     // 4. Card 3: Payment Method
     const card3 = createElement('div', ['qs-order-card']);
-    const isOnline = (order.rawOrder && order.rawOrder.paymentMethod === 1) || order.paymentMethod === 1;
-    const payText = isOnline ? (isAr ? 'دفع إلكتروني' : 'Online Payment') : (isAr ? 'كاش عند الاستلام' : 'Cash on Delivery');
+    const pm = Number((order.rawOrder && order.rawOrder.paymentMethod !== undefined ? order.rawOrder.paymentMethod : order.paymentMethod) || 0);
+    const isWallet = pm === 2 || String(order.paymentMethod).toLowerCase().includes('wallet');
+    const isVisa = pm === 1 || String(order.paymentMethod).toLowerCase().includes('online') || String(order.paymentMethod).toLowerCase().includes('visa');
+    const isOnline = isVisa || isWallet;
+    const payText = isWallet ? (isAr ? '👛 محفظة إلكترونية (مدفوع ✔)' : '👛 Wallet (PAID ✔)') : (isVisa ? (isAr ? '💳 دفع إلكتروني (مدفوع ✔)' : '💳 Online Payment (PAID ✔)') : (isAr ? '💵 كاش عند الاستلام' : '💵 Cash on Delivery'));
 
     const payRow = createElement('div', ['qs-order-card-row']);
-    payRow.appendChild(createElementWithText('span', payText, ['qs-order-card-value']));
+    payRow.appendChild(createElementWithText('span', payText, ['qs-order-card-value'], {
+        style: isOnline ? 'color: var(--color-success, #10b981); font-weight: 800;' : ''
+    }));
     payRow.appendChild(createElementWithText('span', isAr ? '💳 وسيلة الدفع' : '💳 Payment Method', ['qs-order-card-label']));
     card3.appendChild(payRow);
     container.appendChild(card3);
@@ -1842,8 +1854,11 @@ export function renderDashboardOrderCard(order, options = {}) {
     }
     headerSub.appendChild(createElementWithText('span', timeText, ['qs-dash-order-time-compact']));
 
-    const isOnline = (order.rawOrder && order.rawOrder.paymentMethod === 1) || order.paymentMethod === 1;
-    const payText = isOnline ? (isAr ? '💳 أونلاين' : '💳 Online') : (isAr ? '💵 كاش' : '💵 Cash');
+    const pm = Number((order.rawOrder && order.rawOrder.paymentMethod !== undefined ? order.rawOrder.paymentMethod : order.paymentMethod) || 0);
+    const isWallet = pm === 2 || String(order.paymentMethod).toLowerCase().includes('wallet');
+    const isVisa = pm === 1 || String(order.paymentMethod).toLowerCase().includes('online') || String(order.paymentMethod).toLowerCase().includes('visa');
+    const isOnline = isVisa || isWallet;
+    const payText = isWallet ? (isAr ? '👛 محفظة' : '👛 Wallet') : (isVisa ? (isAr ? '💳 أونلاين' : '💳 Online') : (isAr ? '💵 كاش' : '💵 Cash'));
     headerSub.appendChild(createElementWithText('span', payText, ['qs-dash-order-badge-pay', isOnline ? 'badge-info' : 'badge-warning']));
     header.appendChild(headerSub);
     card.appendChild(header);

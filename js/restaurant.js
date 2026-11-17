@@ -1363,7 +1363,16 @@ function renderProgressTab(parent) {
 
                 const cardHeader = ui.createElement('div', ['kanban-card-header']);
                 const ordHeader = isAr ? `طلب #${ord.id}` : `Order #${ord.id}`;
-                cardHeader.appendChild(ui.createElementWithText('span', ordHeader));
+                const idAndPayWrap = ui.createElement('div', [], { style: 'display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;' });
+                idAndPayWrap.appendChild(ui.createElementWithText('span', ordHeader));
+                const pmKanban = Number((ord.rawOrder && ord.rawOrder.paymentMethod !== undefined ? ord.rawOrder.paymentMethod : ord.paymentMethod) || 0);
+                const isKanbanOnline = pmKanban === 1 || pmKanban === 2;
+                const kanbanPayText = pmKanban === 2 ? (isAr ? '👛 محفظة' : '👛 Wallet') : (pmKanban === 1 ? (isAr ? '💳 أونلاين' : '💳 Online') : (isAr ? '💵 كاش' : '💵 Cash'));
+                const kanbanPayColor = isKanbanOnline ? '#10b981' : '#f59e0b';
+                idAndPayWrap.appendChild(ui.createElementWithText('span', kanbanPayText, [], {
+                    style: `color: ${kanbanPayColor}; font-size: 0.68rem; font-weight: 700; background: ${kanbanPayColor}18; padding: 0.1rem 0.45rem; border-radius: 10px; border: 1px solid ${kanbanPayColor}40;`
+                }));
+                cardHeader.appendChild(idAndPayWrap);
                 const priceSpan = ui.createElement('span', [], { style: 'color: var(--color-success); font-weight: 800;' });
                 if (ord.hasPromo) {
                     priceSpan.innerHTML = `<span style="text-decoration: line-through; color: var(--text-muted); font-size: 0.75rem; margin-inline-end: 0.35rem;">${ord.originalPrice.toFixed(2)}</span><span>${ord.totalPrice.toFixed(2)} ${currText}</span>`;
