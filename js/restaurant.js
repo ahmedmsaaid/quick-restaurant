@@ -1404,7 +1404,8 @@ function renderProgressTab(parent) {
                 card.appendChild(cardItems);
 
                 // Customer Notes if present
-                const cardNotes = (ord.notes || ord.note || (ord.rawOrder && (ord.rawOrder.notes || ord.rawOrder.note)) || '').toString().trim();
+                const rawCardNotes = (ord.notes || (ord.rawOrder && (ord.rawOrder.notes || ord.rawOrder.note)) || '').toString();
+                const cardNotes = rawCardNotes.replace(/\s*\|\s*\[Promo:[^\]]*\]|\[Promo:[^\]]*\]\s*\|\s*|\[Promo:[^\]]*\]/g, '').trim();
                 if (cardNotes) {
                     const notesEl = ui.createElement('div', [], { style: 'font-size: 0.76rem; color: #d97706; background: rgba(245, 158, 11, 0.1); border: 1px dashed rgba(245, 158, 11, 0.35); border-radius: 6px; padding: 3px 6px; margin: 2px 0;' });
                     notesEl.appendChild(ui.createElementWithText('span', `📝 ${cardNotes}`));

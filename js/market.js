@@ -353,7 +353,7 @@ async function refreshOrders() {
                     type: 1,
                     finalTotal: ord.totalPrice,
                     paymentMethod: ord.paymentMethod || (ord.rawOrder && ord.rawOrder.paymentMethod) || 0,
-                    notes: ord.notes || ord.note || ord.Notes || ord.Note || ord.description || ord.customerNotes || '',
+                    notes: (ord.notes || ord.note || ord.Notes || ord.Note || ord.description || ord.customerNotes || '').replace(/\s*\|\s*\[Promo:[^\]]*\]|\[Promo:[^\]]*\]\s*\|\s*|\[Promo:[^\]]*\]/g, '').trim(),
                     customerName: ord.creator ? ord.creator.name : (ord.user && ord.user.role === 2 ? ord.user.name : (getLanguage() === 'ar' ? 'عميل' : 'Customer')),
                     customerPhone: ord.creator ? ord.creator.phone : (ord.user && ord.user.role === 2 ? ord.user.phone : ''),
                     createdAt: ord.createdAt || ord.createdOn,

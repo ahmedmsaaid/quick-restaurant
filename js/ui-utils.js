@@ -1772,7 +1772,7 @@ export function renderOrderView(order, options = {}) {
     // 5. Card 4: Customer Notes
     const card4 = createElement('div', ['qs-order-card']);
     card4.appendChild(createElementWithText('div', isAr ? 'ملاحظات العميل' : 'Customer Notes', ['qs-order-section-title', 'qs-order-card-label']));
-    const rawOrderNotes = (order.notes || order.note || order.Notes || order.Note || (order.rawOrder && (order.rawOrder.notes || order.rawOrder.note || order.rawOrder.Notes || order.rawOrder.Note)) || '').toString().trim();
+    const rawOrderNotes = (order.notes || order.note || order.Notes || order.Note || (order.rawOrder && (order.rawOrder.notes || order.rawOrder.note || order.rawOrder.Notes || order.rawOrder.Note)) || '').toString().replace(/\s*\|\s*\[Promo:[^\]]*\]|\[Promo:[^\]]*\]\s*\|\s*|\[Promo:[^\]]*\]/g, '').trim();
     const notesText = rawOrderNotes ? rawOrderNotes : (isAr ? 'لا توجد ملاحظات' : 'No notes');
     card4.appendChild(createElementWithText('div', notesText, ['qs-order-notes-content']));
     container.appendChild(card4);
@@ -1878,7 +1878,7 @@ export function renderDashboardOrderCard(order, options = {}) {
     const itemsRow = createElement('div', ['qs-dash-order-items-compact']);
     itemsRow.appendChild(createElementWithText('span', `📦 ${items.length} ${isAr ? 'أصناف' : 'items'}: ${itemsSummary}`));
     body.appendChild(itemsRow);
-    const cardNotes = (order.notes || order.note || order.Notes || order.Note || (order.rawOrder && (order.rawOrder.notes || order.rawOrder.note || order.rawOrder.Notes || order.rawOrder.Note)) || '').toString().trim();
+    const cardNotes = (order.notes || order.note || order.Notes || order.Note || (order.rawOrder && (order.rawOrder.notes || order.rawOrder.note || order.rawOrder.Notes || order.rawOrder.Note)) || '').toString().replace(/\s*\|\s*\[Promo:[^\]]*\]|\[Promo:[^\]]*\]\s*\|\s*|\[Promo:[^\]]*\]/g, '').trim();
     if (cardNotes) {
         const notesRow = createElement('div', ['qs-dash-order-notes-compact'], { style: 'font-size: 0.78rem; color: #f59e0b; background: rgba(245, 158, 11, 0.1); border: 1px dashed rgba(245, 158, 11, 0.35); border-radius: 6px; padding: 4px 8px; margin-top: 4px;' });
         notesRow.appendChild(createElementWithText('span', `📝 ${isAr ? 'ملاحظات:' : 'Notes:'} ${cardNotes}`));
